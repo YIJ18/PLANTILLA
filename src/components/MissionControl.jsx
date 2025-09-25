@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Timer, ArrowUp, ArrowRight, Map, ListChecks, BookOpen, CheckCircle, XCircle, Radio } from 'lucide-react';
+import { Timer, Map, ListChecks, BookOpen, CheckCircle, XCircle, Radio } from 'lucide-react';
 
 const formatTime = (seconds) => {
   const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
@@ -41,16 +41,7 @@ const MissionControl = ({ missionData }) => {
           <div className="text-xs text-yellow-400">Distancia</div>
           <div className="text-lg font-bold font-mono">{(distance / 1000).toFixed(2)} km</div>
         </div>
-        <div className="bg-gray-800/50 rounded-lg p-3 text-center">
-          <ArrowUp className="w-5 h-5 mx-auto text-green-400 mb-1" />
-          <div className="text-xs text-green-400">Vel. Vertical</div>
-          <div className="text-lg font-bold font-mono">{verticalSpeed.toFixed(1)} m/s</div>
-        </div>
-        <div className="bg-gray-800/50 rounded-lg p-3 text-center">
-          <ArrowRight className="w-5 h-5 mx-auto text-red-400 mb-1" />
-          <div className="text-xs text-red-400">Vel. Horizontal</div>
-          <div className="text-lg font-bold font-mono">{horizontalSpeed.toFixed(1)} m/s</div>
-        </div>
+
       </div>
 
       <div className="grid grid-cols-2 gap-4 flex-grow">

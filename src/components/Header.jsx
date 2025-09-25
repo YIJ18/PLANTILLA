@@ -20,7 +20,7 @@ const Header = () => {
           </motion.div>
           
           <h1 className="text-4xl md:text-6xl font-bold astra-title">
-            ASTRA
+            ASTRA ROCKETRY
           </h1>
           
           <motion.div
@@ -37,7 +37,7 @@ const Header = () => {
           animate={{ opacity: 1 }}
           transition={{ duration: 0.8, delay: 0.3 }}
         >
-          CanSat Mission Control Dashboard
+          CanSat Mission Control Astra
         </motion.p>
       </div>
     </header>
