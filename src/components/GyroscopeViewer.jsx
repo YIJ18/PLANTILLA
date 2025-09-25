@@ -18,7 +18,7 @@ const CanSatModel = ({ modelUrl, gyroData }) => {
   const obj = useLoader(OBJLoader, modelUrl);
 
   const material = new THREE.MeshStandardMaterial({
-    color: '#3b82f6',
+    color: '#0xffffff',
     metalness: 0.8,
     roughness: 0.2,
   });
