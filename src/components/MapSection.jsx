@@ -1,5 +1,4 @@
 import React, { useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
 import { MapPin, LocateFixed } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import L from 'leaflet';
@@ -17,6 +16,7 @@ const MapSection = ({ coordinates }) => {
   const mapInstanceRef = useRef(null);
   const markerRef = useRef(null);
   const pathRef = useRef(null);
+  const breadcrumbsLayerRef = useRef(null); // nuevo grupo de capas
 
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
@@ -28,12 +28,17 @@ const MapSection = ({ coordinates }) => {
     });
 
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
       subdomains: 'abcd',
-      maxZoom: 19
+      maxZoom: 19,
     }).addTo(map);
-    
+
     L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+    // inicializar grupo para breadcrumbs
+    breadcrumbsLayerRef.current = L.layerGroup().addTo(map);
+
     mapInstanceRef.current = map;
 
     return () => {
@@ -50,6 +55,7 @@ const MapSection = ({ coordinates }) => {
     const map = mapInstanceRef.current;
     const latestCoord = coordinates[coordinates.length - 1];
 
+    // --- Icono animado del último punto ---
     const canSatIcon = L.divIcon({
       className: 'custom-cansat-marker',
       html: `
@@ -71,34 +77,63 @@ const MapSection = ({ coordinates }) => {
         </style>
       `,
       iconSize: [20, 20],
-      iconAnchor: [10, 10]
+      iconAnchor: [10, 10],
     });
 
+    // --- Marker principal ---
     if (markerRef.current) {
       markerRef.current.setLatLng([latestCoord.lat, latestCoord.lng]);
     } else {
-      markerRef.current = L.marker([latestCoord.lat, latestCoord.lng], { 
+      markerRef.current = L.marker([latestCoord.lat, latestCoord.lng], {
         icon: canSatIcon,
-        zIndexOffset: 1000
+        zIndexOffset: 1000,
       }).addTo(map);
     }
-    
-    markerRef.current.bindPopup(`<b>🛰️ CanSat Astra</b><br>Lat: ${latestCoord.lat.toFixed(6)}<br>Lng: ${latestCoord.lng.toFixed(6)}`);
 
+    markerRef.current.bindPopup(
+      `<b>🛰️ CanSat Astra</b><br>Lat: ${latestCoord.lat.toFixed(6)}<br>Lng: ${latestCoord.lng.toFixed(6)}`
+    );
+
+    // --- Polyline del recorrido ---
     if (pathRef.current) {
-      pathRef.current.setLatLngs(coordinates.map(c => [c.lat, c.lng]));
+      pathRef.current.setLatLngs(coordinates.map((c) => [c.lat, c.lng]));
     } else {
-      pathRef.current = L.polyline(coordinates.map(c => [c.lat, c.lng]), {
+      pathRef.current = L.polyline(coordinates.map((c) => [c.lat, c.lng]), {
         color: '#3b82f6',
         weight: 3,
         opacity: 0.8,
       }).addTo(map);
     }
 
-    if (!map.getBounds().contains(markerRef.current.getLatLng())) {
-        map.panTo([latestCoord.lat, latestCoord.lng]);
-    }
+    // --- Breadcrumbs (reset cada vez) ---
+    breadcrumbsLayerRef.current.clearLayers(); // limpiar anteriores
+    coordinates.forEach((coord, idx) => {
+      if (idx === coordinates.length - 1) {
+        // último punto → verde
+        L.circleMarker([coord.lat, coord.lng], {
+          radius: 5,
+          color: '#FF0000',
+          fillColor: '#FF0000',
+          fillOpacity: 0.5,
+        }).addTo(breadcrumbsLayerRef.current);
+      } else {
+        // puntos anteriores → azul
+        L.circleMarker([coord.lat, coord.lng], {
+          radius: 3,
+          color: '#3b82f6',
+          fillColor: '#3b82f6',
+          fillOpacity: 0.6,
+        }).addTo(breadcrumbsLayerRef.current);
+      }
+    });
 
+    // --- Ajuste automático de vista ---
+    if (coordinates.length > 1) {
+      const bounds = L.latLngBounds(coordinates.map((c) => [c.lat, c.lng]));
+      map.fitBounds(bounds, { padding: [50, 50] });
+    } else {
+      map.panTo([latestCoord.lat, latestCoord.lng]);
+    }
   }, [coordinates]);
 
   const centerMap = () => {
@@ -114,20 +149,20 @@ const MapSection = ({ coordinates }) => {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-3">
           <MapPin className="w-6 h-6 text-blue-400" />
-          <h2 className="text-2xl font-bold text-white">Ubicación</h2>
+          <h2 className="text-2xl font-bold text-white">Tracker de Vuelo</h2>
         </div>
-        <Button 
-          onClick={centerMap} 
-          variant="outline" 
-          size="sm" 
+        <Button
+          onClick={centerMap}
+          variant="outline"
+          size="sm"
           className="bg-transparent border-blue-400 text-blue-400 hover:bg-blue-400 hover:text-black"
         >
           <LocateFixed className="w-4 h-4 mr-2" /> Centrar
         </Button>
       </div>
 
-      <div 
-        ref={mapRef} 
+      <div
+        ref={mapRef}
         className="w-full flex-grow rounded-lg overflow-hidden border border-gray-600"
         style={{ background: '#1f2937', minHeight: '300px' }}
       />

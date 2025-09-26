@@ -30,6 +30,7 @@ const MissionControl = ({ missionData }) => {
         Control de Misión
       </h2>
 
+      {/* Estadísticas principales */}
       <div className="grid grid-cols-2 gap-4 mb-4">
         <div className="bg-gray-800/50 rounded-lg p-3 text-center">
           <Timer className="w-5 h-5 mx-auto text-blue-400 mb-1" />
@@ -43,7 +44,9 @@ const MissionControl = ({ missionData }) => {
         </div>
       </div>
 
+      {/* Checklist y Registro */}
       <div className="grid grid-cols-2 gap-4 flex-grow">
+        {/* Checklist */}
         <div className="bg-gray-800/30 rounded-lg p-3">
           <h3 className="text-md font-semibold text-white mb-2 flex items-center">
             <ListChecks className="w-4 h-4 mr-2" /> Checklist
@@ -55,11 +58,13 @@ const MissionControl = ({ missionData }) => {
             <ChecklistItem label="Grabación" checked={checklist.recording} />
           </div>
         </div>
+
+        {/* Registro con scroll */}
         <div className="bg-gray-800/30 rounded-lg p-3 flex flex-col">
           <h3 className="text-md font-semibold text-white mb-2 flex items-center">
             <BookOpen className="w-4 h-4 mr-2" /> Registro
           </h3>
-          <div className="flex-grow overflow-y-auto text-xs space-y-1 pr-2">
+          <div className="overflow-y-auto text-xs space-y-1 pr-2 max-h-40">
             {events.map((event, index) => (
               <motion.div 
                 key={index}
