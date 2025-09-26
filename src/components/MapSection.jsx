@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { MapPin, Navigation, LocateFixed } from 'lucide-react';
+import { MapPin, LocateFixed } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -34,7 +34,6 @@ const MapSection = ({ coordinates }) => {
     }).addTo(map);
     
     L.control.zoom({ position: 'bottomright' }).addTo(map);
-
     mapInstanceRef.current = map;
 
     return () => {
@@ -111,13 +110,18 @@ const MapSection = ({ coordinates }) => {
   const currentCoord = coordinates[coordinates.length - 1] || { lat: 0, lng: 0, alt: 0 };
 
   return (
-    <div className="glass-card rounded-xl p-6 h-full flex flex-col">
+    <div className="map-section glass-card rounded-xl p-6 h-full flex flex-col">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-3">
           <MapPin className="w-6 h-6 text-blue-400" />
           <h2 className="text-2xl font-bold text-white">Ubicación</h2>
         </div>
-        <Button onClick={centerMap} variant="outline" size="sm" className="bg-transparent border-blue-400 text-blue-400 hover:bg-blue-400 hover:text-black">
+        <Button 
+          onClick={centerMap} 
+          variant="outline" 
+          size="sm" 
+          className="bg-transparent border-blue-400 text-blue-400 hover:bg-blue-400 hover:text-black"
+        >
           <LocateFixed className="w-4 h-4 mr-2" /> Centrar
         </Button>
       </div>

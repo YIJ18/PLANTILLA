@@ -21,10 +21,10 @@ const ChecklistItem = ({ label, checked }) => (
 );
 
 const MissionControl = ({ missionData }) => {
-  const { flightTime, verticalSpeed, horizontalSpeed, distance, events, checklist } = missionData;
+  const { flightTime, distance, events, checklist } = missionData;
 
   return (
-    <div className="glass-card rounded-xl p-6 h-full flex flex-col">
+    <div className="mission-control glass-card rounded-xl p-6 h-full flex flex-col">
       <h2 className="text-2xl font-bold text-white mb-4 flex items-center">
         <Radio className="w-6 h-6 mr-3 text-green-400" />
         Control de Misión
@@ -41,12 +41,13 @@ const MissionControl = ({ missionData }) => {
           <div className="text-xs text-yellow-400">Distancia</div>
           <div className="text-lg font-bold font-mono">{(distance / 1000).toFixed(2)} km</div>
         </div>
-
       </div>
 
       <div className="grid grid-cols-2 gap-4 flex-grow">
         <div className="bg-gray-800/30 rounded-lg p-3">
-          <h3 className="text-md font-semibold text-white mb-2 flex items-center"><ListChecks className="w-4 h-4 mr-2" /> Checklist</h3>
+          <h3 className="text-md font-semibold text-white mb-2 flex items-center">
+            <ListChecks className="w-4 h-4 mr-2" /> Checklist
+          </h3>
           <div className="space-y-2">
             <ChecklistItem label="Transmisión" checked={checklist.transmission} />
             <ChecklistItem label="Sensores" checked={checklist.sensors} />
@@ -55,7 +56,9 @@ const MissionControl = ({ missionData }) => {
           </div>
         </div>
         <div className="bg-gray-800/30 rounded-lg p-3 flex flex-col">
-          <h3 className="text-md font-semibold text-white mb-2 flex items-center"><BookOpen className="w-4 h-4 mr-2" /> Registro</h3>
+          <h3 className="text-md font-semibold text-white mb-2 flex items-center">
+            <BookOpen className="w-4 h-4 mr-2" /> Registro
+          </h3>
           <div className="flex-grow overflow-y-auto text-xs space-y-1 pr-2">
             {events.map((event, index) => (
               <motion.div 

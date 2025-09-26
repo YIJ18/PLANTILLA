@@ -24,7 +24,6 @@ ChartJS.register(
   Filler
 );
 
-// Simple moving average filter
 const applySMA = (data, period) => {
   if (period > data.length || period <= 1) return data;
   const result = [];
@@ -33,7 +32,6 @@ const applySMA = (data, period) => {
     const avg = chunk.reduce((a, b) => a + b, 0) / period;
     result.push(avg);
   }
-  // Pad start to match length
   const padding = Array(period - 1).fill(result[0]);
   return [...padding, ...result];
 };
@@ -101,23 +99,16 @@ const ChartCard = ({ title, data, timestamps, color, unit, icon }) => {
     },
     scales: {
       x: {
-        display: true,
-        title: { display: false },
         grid: { color: 'rgba(156, 163, 175, 0.1)', drawBorder: false },
         ticks: { color: '#9ca3af', maxTicksLimit: 6, font: { size: 10 } }
       },
       y: {
-        display: true,
         title: { display: true, text: unit, color: '#9ca3af', font: { size: 12 } },
         grid: { color: 'rgba(156, 163, 175, 0.1)', drawBorder: false },
         ticks: { color: '#9ca3af', font: { size: 10 }, callback: (value) => value.toFixed(1) }
       }
     },
-    interaction: {
-      mode: 'nearest',
-      axis: 'x',
-      intersect: false
-    },
+    interaction: { mode: 'nearest', axis: 'x', intersect: false }
   };
 
   const currentValue = data[data.length - 1] || 0;
@@ -126,7 +117,8 @@ const ChartCard = ({ title, data, timestamps, color, unit, icon }) => {
 
   return (
     <motion.div
-      className="glass-card rounded-xl p-6 hover:shadow-xl transition-all duration-300"
+      ref={chartRef}
+      className="chart-card glass-card rounded-xl p-6 hover:shadow-xl transition-all duration-300"
       whileHover={{ scale: 1.02 }}
       style={{ boxShadow: `0 0 20px ${color.replace('rgb', 'rgba').replace(')', ', 0.2)')}` }}
     >

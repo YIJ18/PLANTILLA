@@ -1,5 +1,6 @@
 import { saveAs } from 'file-saver';
 import JSZip from 'jszip';
+import html2canvas from 'html2canvas';
 
 const DB_NAME = 'AstraDB';
 const DB_VERSION = 1;
@@ -78,30 +79,53 @@ function dataToTxt(data) {
 
 export async function exportFlightPackage(flightName, flightData) {
   const zip = new JSZip();
-  
+
+  // --- Metadata y datos crudos
   const metadata = {
-    flightName: flightName,
+    flightName,
     exportDate: new Date().toISOString(),
     totalPoints: flightData.timestamps.length,
   };
-
   const dataTxt = dataToTxt(flightData);
 
   zip.file("metadata.json", JSON.stringify(metadata, null, 2));
   zip.file(`${flightName}_data.txt`, dataTxt);
 
-  // Placeholder for snapshot
-  const canvas = document.createElement('canvas');
-  canvas.width = 100;
-  canvas.height = 100;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = 'black';
-  ctx.fillRect(0, 0, 100, 100);
-  ctx.fillStyle = 'white';
-  ctx.fillText('Snapshot', 10, 50);
-  const snapshotBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-  zip.file("snapshot.png", snapshotBlob);
+  // --- Capturar todas las secciones del dashboard ---
+  const sections = [
+    { selector: ".chart-container", prefix: "grafica" },
+    { selector: ".mission-control", prefix: "mision" },
+    { selector: ".map-section", prefix: "mapa" },
+    { selector: ".status-panel", prefix: "status" },
+    { selector: ".gyro-viewer", prefix: "gyro" }
+  ];
 
+  let index = 1;
+  for (const section of sections) {
+    const elements = document.querySelectorAll(section.selector);
+
+    for (let el of elements) {
+      const canvas = await html2canvas(el, {
+        backgroundColor: "#000000",
+        useCORS: true,
+        scrollY: -window.scrollY
+      });
+
+      const imgData = canvas.toDataURL("image/png").split(",")[1];
+      zip.file(`${section.prefix}_${index}.png`, imgData, { base64: true });
+      index++;
+    }
+  }
+  // --- Agregar logo Astra ---
+  try {
+    const response = await fetch("/logo.png"); // asegúrate de que el archivo esté en /public/astra.png
+    const blob = await response.blob();
+    zip.file("astra_logo.png", blob);
+  } catch (err) {
+    console.error("No se pudo cargar el logo Astra:", err);
+  }
+
+  // --- Generar y descargar ZIP ---
   const content = await zip.generateAsync({ type: "blob" });
   saveAs(content, `${flightName}_package.zip`);
 }

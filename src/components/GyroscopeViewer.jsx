@@ -115,7 +115,7 @@ const GyroscopeViewer = ({ gyroData, modelUrl, onModelUpload, currentFlight, onR
   };
 
   return (
-    <div className="glass-card rounded-xl p-6 h-full flex flex-col">
+    <div className="gyro-viewer glass-card rounded-xl p-6 h-full flex flex-col">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-3">
           <Rotate3D className="w-6 h-6 text-purple-400" />

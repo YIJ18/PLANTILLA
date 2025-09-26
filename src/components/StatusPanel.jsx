@@ -12,7 +12,7 @@ const StatusPanel = ({ status, isLiveMode }) => {
   };
 
   return (
-    <div className="glass-card rounded-xl p-6 h-full">
+    <div className="status-panel glass-card rounded-xl p-6 h-full">
       <h2 className="text-2xl font-bold text-white mb-6 flex items-center">
         {isActive ? <Wifi className="w-6 h-6 mr-3 text-green-400" /> : <WifiOff className="w-6 h-6 mr-3 text-red-400" />}
         Estado del CanSat
