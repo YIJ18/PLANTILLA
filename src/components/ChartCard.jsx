@@ -1,5 +1,5 @@
-import React, { useRef } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -12,6 +12,7 @@ import {
   Filler
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
+import { X } from 'lucide-react';
 
 ChartJS.register(
   CategoryScale,
@@ -37,6 +38,7 @@ const applySMA = (data, period) => {
 };
 
 const ChartCard = ({ title, data, timestamps, color, unit, icon }) => {
+  const [isOpen, setIsOpen] = useState(false);
   const chartRef = useRef();
   const filteredData = applySMA(data, 5);
 
@@ -116,32 +118,71 @@ const ChartCard = ({ title, data, timestamps, color, unit, icon }) => {
   const trend = currentValue > previousValue ? '↗️' : currentValue < previousValue ? '↘️' : '➡️';
 
   return (
-    <motion.div
-      ref={chartRef}
-      className="chart-card glass-card rounded-xl p-6 hover:shadow-xl transition-all duration-300"
-      whileHover={{ scale: 1.02 }}
-      style={{ boxShadow: `0 0 20px ${color.replace('rgb', 'rgba').replace(')', ', 0.2)')}` }}
-    >
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center space-x-3">
-          <span className="text-2xl">{icon}</span>
-          <div>
-            <h3 className="text-lg font-semibold text-white">{title}</h3>
-            <div className="flex items-center space-x-2">
-              <span className="text-2xl font-bold" style={{ color }}>
-                {currentValue.toFixed(2)}
-              </span>
-              <span className="text-gray-400 text-sm">{unit}</span>
-              <span className="text-sm">{trend}</span>
+    <>
+      {/* --- Tarjeta normal --- */}
+      <motion.div
+        ref={chartRef}
+        className="chart-card glass-card rounded-xl p-6 hover:shadow-xl transition-all duration-300 cursor-pointer"
+        whileHover={{ scale: 1.02 }}
+        style={{ boxShadow: `0 0 20px ${color.replace('rgb', 'rgba').replace(')', ', 0.2)')}` }}
+        onClick={() => setIsOpen(true)}
+      >
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center space-x-3">
+            <span className="text-2xl">{icon}</span>
+            <div>
+              <h3 className="text-lg font-semibold text-white">{title}</h3>
+              <div className="flex items-center space-x-2">
+                <span className="text-2xl font-bold" style={{ color }}>
+                  {currentValue.toFixed(2)}
+                </span>
+                <span className="text-gray-400 text-sm">{unit}</span>
+                <span className="text-sm">{trend}</span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div className="chart-container" style={{ height: '250px' }}>
-        <Line ref={chartRef} data={chartData} options={options} />
-      </div>
-    </motion.div>
+        <div className="chart-container" style={{ height: '250px' }}>
+          <Line ref={chartRef} data={chartData} options={options} />
+        </div>
+      </motion.div>
+
+      {/* --- Modal con gráfica ampliada --- */}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsOpen(false)}
+          >
+            <motion.div
+              className="bg-gray-900 rounded-xl p-6 w-11/12 md:w-3/4 lg:w-2/3 xl:w-1/2 relative"
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                className="absolute top-4 right-4 text-gray-400 hover:text-white"
+                onClick={() => setIsOpen(false)}
+              >
+                <X size={20} />
+              </button>
+              <h3 className="text-lg font-semibold text-white mb-4 flex items-center space-x-2">
+                <span className="text-2xl">{icon}</span>
+                <span>{title} (Ampliado)</span>
+              </h3>
+              <div style={{ height: '500px' }}>
+                <Line data={chartData} options={options} />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 };
 
