@@ -16,7 +16,7 @@ const MapSection = ({ coordinates }) => {
   const mapInstanceRef = useRef(null);
   const markerRef = useRef(null);
   const pathRef = useRef(null);
-  const breadcrumbsLayerRef = useRef(null); // nuevo grupo de capas
+  const breadcrumbsLayerRef = useRef(null);
 
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
@@ -91,7 +91,11 @@ const MapSection = ({ coordinates }) => {
     }
 
     markerRef.current.bindPopup(
-      `<b>🛰️ CanSat Astra</b><br>Lat: ${latestCoord.lat.toFixed(6)}<br>Lng: ${latestCoord.lng.toFixed(6)}`
+      `<b>🛰️ CanSat Astra</b><br>
+       ⏰ Hora: ${latestCoord.time || "N/A"}<br>
+       🌐 Lat: ${latestCoord.lat.toFixed(6)}<br>
+       🌐 Lng: ${latestCoord.lng.toFixed(6)}<br>
+       ⛰️ Alt: ${(latestCoord.alt || 0).toFixed(1)} m`
     );
 
     // --- Polyline del recorrido ---
@@ -105,26 +109,25 @@ const MapSection = ({ coordinates }) => {
       }).addTo(map);
     }
 
-    // --- Breadcrumbs (reset cada vez) ---
-    breadcrumbsLayerRef.current.clearLayers(); // limpiar anteriores
+    // --- Breadcrumbs (cada punto con popup) ---
+    breadcrumbsLayerRef.current.clearLayers();
     coordinates.forEach((coord, idx) => {
-      if (idx === coordinates.length - 1) {
-        // último punto → verde
-        L.circleMarker([coord.lat, coord.lng], {
-          radius: 5,
-          color: '#FF0000',
-          fillColor: '#FF0000',
-          fillOpacity: 0.5,
-        }).addTo(breadcrumbsLayerRef.current);
-      } else {
-        // puntos anteriores → azul
-        L.circleMarker([coord.lat, coord.lng], {
-          radius: 3,
-          color: '#3b82f6',
-          fillColor: '#3b82f6',
-          fillOpacity: 0.6,
-        }).addTo(breadcrumbsLayerRef.current);
-      }
+      const circle = L.circleMarker([coord.lat, coord.lng], {
+        radius: idx === coordinates.length - 1 ? 5 : 3,
+        color: idx === coordinates.length - 1 ? '#FF0000' : '#3b82f6',
+        fillColor: idx === coordinates.length - 1 ? '#FF0000' : '#3b82f6',
+        fillOpacity: idx === coordinates.length - 1 ? 0.5 : 0.6,
+      });
+
+      circle.bindPopup(`
+        <b>📍 Punto ${idx + 1}</b><br>
+        ⏰ Hora: ${coord.time || "N/A"}<br>
+        🌐 Lat: ${coord.lat.toFixed(6)}<br>
+        🌐 Lng: ${coord.lng.toFixed(6)}<br>
+        ⛰️ Alt: ${(coord.alt || 0).toFixed(1)} m
+      `);
+
+      circle.addTo(breadcrumbsLayerRef.current);
     });
 
     // --- Ajuste automático de vista ---
