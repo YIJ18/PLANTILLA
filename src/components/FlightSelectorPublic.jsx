@@ -1,16 +1,9 @@
-import React from 'react';
 import { motion } from 'framer-motion';
 import { FileText, Satellite, Eye, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 
 const FlightSelectorPublic = ({ onFlightSelect, currentFlight, savedFlights }) => {
-  const navigate = useNavigate();
-
-  const handleAdminAccess = () => {
-    navigate('/login');
-  };
-
   return (
     <div className="glass-card rounded-xl p-6">
       <div className="flex items-center justify-between mb-6">
@@ -18,14 +11,6 @@ const FlightSelectorPublic = ({ onFlightSelect, currentFlight, savedFlights }) =
           <Satellite className="w-6 h-6 text-blue-400" />
           <h2 className="text-2xl font-bold text-white">Vuelos Disponibles</h2>
         </div>
-        <Button
-          onClick={handleAdminAccess}
-          variant="outline"
-          className="border-blue-600 text-blue-400 hover:text-white hover:border-blue-500 hover:bg-blue-600/10"
-        >
-          <Shield className="w-4 h-4 mr-2" />
-          Acceso Admin
-        </Button>
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
@@ -86,14 +71,6 @@ const FlightSelectorPublic = ({ onFlightSelect, currentFlight, savedFlights }) =
               <p className="text-xs text-gray-400 mb-2">
                 Para acceder a estas funciones, necesitas credenciales de administrador.
               </p>
-              <Button
-                onClick={handleAdminAccess}
-                size="sm"
-                className="w-full bg-blue-600 hover:bg-blue-700"
-              >
-                <Shield className="w-4 h-4 mr-2" />
-                Iniciar Sesión como Admin
-              </Button>
             </div>
           </div>
         </div>
