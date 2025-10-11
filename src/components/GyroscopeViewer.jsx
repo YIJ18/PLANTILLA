@@ -56,7 +56,7 @@ const CanSatModel = ({ modelUrl, gyroData }) => {
   return <primitive object={obj} ref={groupRef} />;
 };
 
-const GyroscopeViewer = ({ gyroData, modelUrl, onModelUpload, currentFlight, onRecordingStatusChange }) => {
+const GyroscopeViewer = ({ gyroData, modelUrl, onModelUpload, currentFlight, onRecordingStatusChange, isReadOnly = false }) => {
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef(null);
   const recordedChunksRef = useRef([]);
@@ -120,22 +120,29 @@ const GyroscopeViewer = ({ gyroData, modelUrl, onModelUpload, currentFlight, onR
         <div className="flex items-center space-x-3">
           <Rotate3D className="w-6 h-6 text-purple-400" />
           <h2 className="text-2xl font-bold text-white">Orientación 3D</h2>
-        </div>
-        <div className="flex items-center gap-2">
-          <input type="file" id="model-upload" accept=".obj" onChange={handleModelUpload} className="hidden" />
-          <Button asChild variant="outline" size="sm" className="bg-transparent border-purple-400 text-purple-400 hover:bg-purple-400 hover:text-black">
-            <label htmlFor="model-upload"><Upload className="w-4 h-4 mr-2" /> Cargar .obj</label>
-          </Button>
-          {isRecording ? (
-            <Button onClick={stopRecording} variant="destructive" size="sm">
-              <Square className="w-4 h-4 mr-2" /> Detener
-            </Button>
-          ) : (
-            <Button onClick={startRecording} variant="outline" size="sm" className="bg-transparent border-green-400 text-green-400 hover:bg-green-400 hover:text-black">
-              <Video className="w-4 h-4 mr-2" /> Grabar
-            </Button>
+          {isReadOnly && (
+            <div className="bg-amber-600/20 border border-amber-500/30 rounded px-2 py-1">
+              <span className="text-amber-400 text-xs font-semibold">SOLO LECTURA</span>
+            </div>
           )}
         </div>
+        {!isReadOnly && (
+          <div className="flex items-center gap-2">
+            <input type="file" id="model-upload" accept=".obj" onChange={handleModelUpload} className="hidden" />
+            <Button asChild variant="outline" size="sm" className="bg-transparent border-purple-400 text-purple-400 hover:bg-purple-400 hover:text-black">
+              <label htmlFor="model-upload"><Upload className="w-4 h-4 mr-2" /> Cargar .obj</label>
+            </Button>
+            {isRecording ? (
+              <Button onClick={stopRecording} variant="destructive" size="sm">
+                <Square className="w-4 h-4 mr-2" /> Detener
+              </Button>
+            ) : (
+              <Button onClick={startRecording} variant="outline" size="sm" className="bg-transparent border-green-400 text-green-400 hover:bg-green-400 hover:text-black">
+                <Video className="w-4 h-4 mr-2" /> Grabar
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="bg-gray-900 rounded-lg overflow-hidden flex-grow">
