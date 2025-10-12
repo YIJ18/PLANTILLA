@@ -13,14 +13,14 @@ django-filter==23.4
 drf-spectacular==0.26.5
 
 # Base de datos
-psycopg2-binary==2.9.8  # Para PostgreSQL en producción
+psycopg2-binary  # Para PostgreSQL en producción
 
 # Validación y seguridad
 django-extensions==3.2.3
 python-decouple==3.8  # Para variables de entorno
 
 # Manejo de imágenes
-Pillow==10.1.0
+Pillow>=10.1.0
 
 # Utilidades de fecha y hora
 python-dateutil==2.8.2
