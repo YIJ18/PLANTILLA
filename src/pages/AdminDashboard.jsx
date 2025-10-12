@@ -10,6 +10,8 @@ import ChartsGrid from '@/components/ChartsGrid';
 import MapSection from '@/components/MapSection';
 import GyroscopeViewer from '@/components/GyroscopeViewer';
 import MissionControl from '@/components/MissionControl';
+// import TelemetryDashboard from '@/components/TelemetryDashboard'; // Comentado temporalmente
+import BackendTestComponent from '@/components/BackendTestComponent';
 import { generateMockData, parseDataFromFile } from '@/utils/mockData';
 import { saveFlightData, loadFlightData, getSavedFlights, exportFlightPackage } from '@/lib/db';
 import { calculateSpeedsAndDistance } from '@/utils/calculations';
@@ -250,6 +252,16 @@ function AdminDashboard() {
                   />
                 </motion.div>
               </div>
+
+              {/* Componente de prueba para verificar conexión con backend */}
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 1.0 }}>
+                <BackendTestComponent />
+              </motion.div>
+
+              {/* Comentado temporalmente para debugging */}
+              {/* <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 1.0 }}>
+                <TelemetryDashboard />
+              </motion.div> */}
             </>
           )}
         </main>

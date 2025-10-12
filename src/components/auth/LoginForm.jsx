@@ -1,18 +1,20 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { Lock, User, Rocket, Eye, EyeOff } from 'lucide-react';
+import { Lock, Mail, Rocket, Eye, EyeOff } from 'lucide-react';
 
 const LoginForm = () => {
   const [formData, setFormData] = useState({
-    username: '',
+    email: '',
     password: ''
   });
   const [showPassword, setShowPassword] = useState(false);
   const { login, isLoading } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -25,7 +27,7 @@ const LoginForm = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (!formData.username || !formData.password) {
+    if (!formData.email || !formData.password) {
       toast({
         title: "Campos requeridos",
         description: "Por favor completa todos los campos",
@@ -34,13 +36,17 @@ const LoginForm = () => {
       return;
     }
 
-    const result = await login(formData.username, formData.password);
+    const result = await login(formData.email, formData.password);
     
     if (result.success) {
       toast({
         title: "¡Bienvenido!",
         description: "Inicio de sesión exitoso",
       });
+      
+      // Redirigir al dashboard de administración
+      console.log('🚀 Redirigiendo al dashboard...');
+      navigate('/admin');
     } else {
       toast({
         title: "Error de autenticación",
@@ -51,8 +57,24 @@ const LoginForm = () => {
   };
 
   const demoCredentials = [
-    { username: 'admin', password: 'astra2024', role: 'Administrador Astra' },
-    { username: 'mission-control', password: 'caelus2024', role: 'Control de Misión' }
+    { 
+      email: 'admin@astra.com', 
+      password: 'admin123', 
+      role: 'Administrador Astra',
+      department: 'Administración' 
+    },
+    { 
+      email: 'operator@astra.com', 
+      password: 'operator123', 
+      role: 'Operador de Control',
+      department: 'Control de Misión' 
+    },
+    { 
+      email: 'analyst@astra.com', 
+      password: 'analyst123', 
+      role: 'Analista de Datos',
+      department: 'Análisis' 
+    }
   ];
 
   return (
@@ -83,20 +105,20 @@ const LoginForm = () => {
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Username */}
+            {/* Email */}
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-300">
-                Usuario
+                Email
               </label>
               <div className="relative">
-                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                 <input
-                  type="text"
-                  name="username"
-                  value={formData.username}
+                  type="email"
+                  name="email"
+                  value={formData.email}
                   onChange={handleInputChange}
                   className="w-full bg-gray-800/50 border border-gray-600 rounded-lg pl-10 pr-4 py-3 text-white placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
-                  placeholder="Ingresa tu usuario"
+                  placeholder="Ingresa tu email"
                   disabled={isLoading}
                 />
               </div>
@@ -160,7 +182,7 @@ const LoginForm = () => {
                 <div key={index} className="bg-gray-900/50 p-2 rounded border border-gray-600">
                   <div className="text-blue-400 font-medium">{cred.role}</div>
                   <div className="text-gray-300">
-                    Usuario: <span className="font-mono text-blue-300">{cred.username}</span>
+                    Email: <span className="font-mono text-blue-300">{cred.email}</span>
                   </div>
                   <div className="text-gray-300">
                     Contraseña: <span className="font-mono text-blue-300">{cred.password}</span>
