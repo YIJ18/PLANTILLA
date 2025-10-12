@@ -11,7 +11,7 @@ import MapSection from '@/components/MapSection';
 import GyroscopeViewer from '@/components/GyroscopeViewer';
 import MissionControl from '@/components/MissionControl';
 import { generateMockData, parseDataFromFile } from '@/utils/mockData';
-import { saveFlightData, loadFlightData, getSavedFlights, exportFlightPackage } from '@/lib/db';
+import { saveFlightData, loadFlightData, getSavedFlights, exportFlightPackage } from '@/lib/dbUnified';
 import { calculateSpeedsAndDistance } from '@/utils/calculations';
 
 function App() {

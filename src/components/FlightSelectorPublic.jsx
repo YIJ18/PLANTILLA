@@ -1,7 +1,6 @@
 import { motion } from 'framer-motion';
-import { FileText, Satellite, Eye, Shield } from 'lucide-react';
+import { FileText, Satellite, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useNavigate } from 'react-router-dom';
 
 const FlightSelectorPublic = ({ onFlightSelect, currentFlight, savedFlights }) => {
   return (
@@ -13,66 +12,32 @@ const FlightSelectorPublic = ({ onFlightSelect, currentFlight, savedFlights }) =
         </div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
-        {/* Vuelos guardados */}
-        <div className="space-y-4">
-          <h3 className="text-lg font-semibold text-blue-400 flex items-center">
-            <FileText className="w-5 h-5 mr-2" />
-            Vuelos Registrados
-          </h3>
-          <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
-            {savedFlights.length > 0 ? (
-              savedFlights.map((flight) => (
-                <Button
-                  key={flight}
-                  variant="outline"
-                  className="w-full justify-start bg-gray-800/50 border-gray-600 hover:bg-blue-600/20 hover:border-blue-500"
-                  onClick={() => onFlightSelect(flight)}
-                >
-                  <Eye className="w-4 h-4 mr-2" />
-                  {flight}
-                </Button>
-              ))
-            ) : (
-              <div className="text-center py-8 text-gray-400">
-                <Satellite className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                <p>No hay vuelos disponibles</p>
-                <p className="text-sm">Los administradores pueden cargar datos de vuelos</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Información de funcionalidades admin */}
-        <div className="space-y-4">
-          <h3 className="text-lg font-semibold text-amber-400 flex items-center">
-            <Shield className="w-5 h-5 mr-2" />
-            Funciones de Administrador
-          </h3>
-          <div className="bg-gray-800/30 border border-gray-700 rounded-lg p-4 space-y-3">
-            <div className="flex items-center text-gray-300">
-              <div className="w-2 h-2 bg-red-400 rounded-full mr-3"></div>
-              <span className="text-sm">Cargar archivos de telemetría</span>
+      {/* Solo vuelos guardados - Sin opciones de administración */}
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold text-blue-400 flex items-center">
+          <FileText className="w-5 h-5 mr-2" />
+          Vuelos Registrados
+        </h3>
+        <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
+          {savedFlights.length > 0 ? (
+            savedFlights.map((flight) => (
+              <Button
+                key={flight}
+                variant="outline"
+                className="w-full justify-start bg-gray-800/50 border-gray-600 hover:bg-blue-600/20 hover:border-blue-500"
+                onClick={() => onFlightSelect(flight)}
+              >
+                <Eye className="w-4 h-4 mr-2" />
+                {flight}
+              </Button>
+            ))
+          ) : (
+            <div className="text-center py-8 text-gray-400">
+              <Satellite className="w-12 h-12 mx-auto mb-3 opacity-50" />
+              <p>No hay vuelos disponibles</p>
+              <p className="text-sm">Esperando datos del sistema...</p>
             </div>
-            <div className="flex items-center text-gray-300">
-              <div className="w-2 h-2 bg-green-400 rounded-full mr-3"></div>
-              <span className="text-sm">Modo de monitoreo en vivo</span>
-            </div>
-            <div className="flex items-center text-gray-300">
-              <div className="w-2 h-2 bg-blue-400 rounded-full mr-3"></div>
-              <span className="text-sm">Exportar paquetes de datos</span>
-            </div>
-            <div className="flex items-center text-gray-300">
-              <div className="w-2 h-2 bg-purple-400 rounded-full mr-3"></div>
-              <span className="text-sm">Gestión completa de vuelos</span>
-            </div>
-            
-            <div className="pt-3 border-t border-gray-600">
-              <p className="text-xs text-gray-400 mb-2">
-                Para acceder a estas funciones, necesitas credenciales de administrador.
-              </p>
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -86,7 +51,7 @@ const FlightSelectorPublic = ({ onFlightSelect, currentFlight, savedFlights }) =
             <span className="font-semibold">Vuelo Visualizando:</span> {currentFlight}
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            Modo solo lectura - Para gestión completa, accede como administrador
+            Modo solo lectura
           </p>
         </motion.div>
       )}

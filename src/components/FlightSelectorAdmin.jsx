@@ -1,13 +1,90 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Upload, Play, FileText, Satellite, Square, Download, Trash2, Shield } from 'lucide-react';
+import { Upload, Play, FileText, Satellite, Square, Download, Trash2, Shield, Cloud, Database } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
-import { getSavedFlights } from '@/lib/db';
+import { getSavedFlights, deleteFlightData } from '@/lib/dbUnified';
 
 const FlightSelectorAdmin = ({ onFlightSelect, onFileUpload, onLiveMode, onStopLive, onExport, currentFlight, isLiveMode, savedFlights, updateSavedFlights }) => {
   const [fileName, setFileName] = useState('');
+  const [syncStatus, setSyncStatus] = useState({ django: 0, local: 0 });
   const { toast } = useToast();
+
+  // Verificar estado de sincronización
+  useEffect(() => {
+    const checkSyncStatus = async () => {
+      try {
+        const token = localStorage.getItem('access_token');
+        if (token) {
+          // Obtener vuelos desde Django usando la función de la API
+          try {
+            const response = await fetch('http://127.0.0.1:8000/api/flights/', {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+            });
+            if (response.ok) {
+              const djangoFlights = await response.json();
+              setSyncStatus(prev => ({ ...prev, django: djangoFlights.length }));
+            } else {
+              console.log('Django API response:', response.status);
+              setSyncStatus(prev => ({ ...prev, django: 0 }));
+            }
+          } catch (error) {
+            console.error('Error fetching Django flights:', error);
+            setSyncStatus(prev => ({ ...prev, django: 0 }));
+          }
+        } else {
+          setSyncStatus(prev => ({ ...prev, django: 0 }));
+        }
+        
+        // Obtener vuelos desde IndexedDB
+        try {
+          const request = indexedDB.open('AstraDB', 1);
+          request.onsuccess = (event) => {
+            const db = event.target.result;
+            const transaction = db.transaction('flights', 'readonly');
+            const store = transaction.objectStore('flights');
+            const keysRequest = store.getAllKeys();
+            keysRequest.onsuccess = () => {
+              setSyncStatus(prev => ({ ...prev, local: keysRequest.result.length }));
+            };
+          };
+        } catch (error) {
+          console.error('Error fetching local flights:', error);
+          setSyncStatus(prev => ({ ...prev, local: 0 }));
+        }
+      } catch (error) {
+        console.error('Error checking sync status:', error);
+      }
+    };
+
+    checkSyncStatus();
+  }, [savedFlights]);
+
+  const handleForcSync = async () => {
+    try {
+      toast({
+        title: "Sincronizando...",
+        description: "Actualizando lista de vuelos desde todas las fuentes",
+      });
+      
+      await updateSavedFlights();
+      
+      toast({
+        title: "Sincronización completa",
+        description: "Lista de vuelos actualizada exitosamente",
+      });
+    } catch (error) {
+      console.error('Error syncing flights:', error);
+      toast({
+        title: "Error de sincronización",
+        description: "No se pudo completar la sincronización",
+        variant: "destructive"
+      });
+    }
+  };
 
   const handleFileChange = (event) => {
     const file = event.target.files[0];
@@ -56,35 +133,24 @@ const FlightSelectorAdmin = ({ onFlightSelect, onFileUpload, onLiveMode, onStopL
     }
 
     try {
-      // Eliminar de IndexedDB
-      const db = await openDB();
-      const transaction = db.transaction('flights', 'readwrite');
-      const store = transaction.objectStore('flights');
-      await store.delete(flightName);
+      // Usar la función unificada que elimina de Django y IndexedDB
+      await deleteFlightData(flightName);
       
       // Actualizar la lista
       updateSavedFlights();
       
       toast({
         title: "Vuelo eliminado",
-        description: `${flightName} ha sido eliminado exitosamente`,
+        description: `${flightName} ha sido eliminado exitosamente del backend y local`,
       });
     } catch (error) {
       console.error('Error deleting flight:', error);
       toast({
         title: "Error",
-        description: "No se pudo eliminar el vuelo",
+        description: "No se pudo eliminar el vuelo completamente",
         variant: "destructive"
       });
     }
-  };
-
-  const openDB = () => {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open('AstraDB', 1);
-      request.onerror = () => reject("Error opening DB");
-      request.onsuccess = () => resolve(request.result);
-    });
   };
 
   const generateQuickFlightName = () => {
@@ -110,9 +176,18 @@ const FlightSelectorAdmin = ({ onFlightSelect, onFileUpload, onLiveMode, onStopL
           <h3 className="text-lg font-semibold text-blue-400 flex items-center">
             <FileText className="w-5 h-5 mr-2" />
             Vuelos Guardados
-            <span className="ml-2 text-xs bg-gray-700 px-2 py-1 rounded">
-              {savedFlights.length}
-            </span>
+            <div className="ml-2 flex items-center space-x-1">
+              <span className="text-xs bg-gray-700 px-2 py-1 rounded flex items-center">
+                <Database className="w-3 h-3 mr-1" />
+                {savedFlights.length}
+              </span>
+              {localStorage.getItem('access_token') && (
+                <span className="text-xs bg-blue-600 px-2 py-1 rounded flex items-center" title="Sincronizado con Django">
+                  <Cloud className="w-3 h-3 mr-1" />
+                  {syncStatus.django}
+                </span>
+              )}
+            </div>
           </h3>
           <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
             {savedFlights.length > 0 ? (
@@ -234,6 +309,42 @@ const FlightSelectorAdmin = ({ onFlightSelect, onFileUpload, onLiveMode, onStopL
             </div>
           )}
         </div>
+      </div>
+
+      {/* Estado de sincronización */}
+      <div className="mt-4 p-3 bg-gray-800/30 border border-gray-700 rounded-lg">
+        <h4 className="text-sm font-semibold text-gray-300 mb-2 flex items-center">
+          <Database className="w-4 h-4 mr-2" />
+          Estado de Sincronización
+        </h4>
+        <div className="grid grid-cols-2 gap-4 text-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-gray-400">Local (IndexedDB):</span>
+            <span className="text-blue-400 font-medium">{syncStatus.local} vuelos</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-gray-400">Backend (Django):</span>
+            <span className={`font-medium ${localStorage.getItem('access_token') ? 'text-green-400' : 'text-red-400'}`}>
+              {localStorage.getItem('access_token') ? `${syncStatus.django} vuelos` : 'Desconectado'}
+            </span>
+          </div>
+        </div>
+        {localStorage.getItem('access_token') && (
+          <div className="mt-2 text-xs text-green-400 flex items-center justify-between">
+            <div className="flex items-center">
+              <div className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></div>
+              Los vuelos se guardan automáticamente en ambas bases de datos
+            </div>
+            <Button
+              onClick={handleForcSync}
+              variant="ghost"
+              size="sm"
+              className="text-xs h-6 px-2 text-blue-400 hover:text-blue-300"
+            >
+              🔄 Sincronizar
+            </Button>
+          </div>
+        )}
       </div>
 
       {currentFlight && (

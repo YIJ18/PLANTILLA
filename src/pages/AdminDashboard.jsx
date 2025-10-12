@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { useToast } from '@/components/ui/use-toast';
 import AdminLayout from '@/components/auth/AdminLayout';
 import FlightSelectorAdmin from '@/components/FlightSelectorAdmin';
+import PublicDisplayController from '@/components/PublicDisplayController';
 import StatusPanel from '@/components/StatusPanel';
 import ChartsGrid from '@/components/ChartsGrid';
 import MapSection from '@/components/MapSection';
@@ -13,7 +14,8 @@ import MissionControl from '@/components/MissionControl';
 // import TelemetryDashboard from '@/components/TelemetryDashboard'; // Comentado temporalmente
 import BackendTestComponent from '@/components/BackendTestComponent';
 import { generateMockData, parseDataFromFile } from '@/utils/mockData';
-import { saveFlightData, loadFlightData, getSavedFlights, exportFlightPackage } from '@/lib/db';
+import { saveFlightData, loadFlightData, getSavedFlights, exportFlightPackage, deleteFlightData } from '@/lib/dbUnified';
+import { testAPIConnection, testAuth } from '@/lib/apiTest';
 import { calculateSpeedsAndDistance } from '@/utils/calculations';
 
 function AdminDashboard() {
@@ -80,6 +82,24 @@ function AdminDashboard() {
     setCanSatStatus(prev => ({ ...prev, isActive: true, battery: 85, walkieChannel: mockData.walkieChannel[mockData.walkieChannel.length - 1] }));
     updateSavedFlights();
     addEvent('Dashboard de administración iniciado.');
+    
+    // Test API connection
+    testAPIConnection().then(result => {
+      if (result.success) {
+        addEvent('✅ Conexión con backend establecida.');
+      } else {
+        addEvent(`❌ Error de conexión con backend: ${result.error}`);
+      }
+    });
+    
+    // Test authentication
+    testAuth().then(result => {
+      if (result.success) {
+        addEvent(`✅ Usuario autenticado: ${result.data.username}`);
+      } else {
+        addEvent(`⚠️ Sin autenticación o token inválido`);
+      }
+    });
   }, [addEvent]);
 
   const updateSavedFlights = async () => {
@@ -219,6 +239,16 @@ function AdminDashboard() {
               isLiveMode={isLiveMode}
               savedFlights={savedFlights}
               updateSavedFlights={updateSavedFlights}
+            />
+          </motion.div>
+
+          {/* Control de Proyección Pública */}
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.1 }}>
+            <PublicDisplayController
+              savedFlights={savedFlights}
+              isLiveMode={isLiveMode}
+              liveFlight={currentFlight}
+              currentData={flightData}
             />
           </motion.div>
 
