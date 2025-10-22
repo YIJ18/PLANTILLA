@@ -12,8 +12,9 @@ export const useTelemetryData = () => {
     try {
       setLoading(true);
       setError(null);
-      const result = await apiRequest('/telemetry/readings/');
-      setData(result?.results || result || []);
+  // Node API endpoints expuestos bajo /api
+      const result = await apiRequest('/telemetry/readings');
+      setData(Array.isArray(result) ? result : (result?.results || []));
     } catch (err) {
       setError(err.message);
       console.error('Error fetching telemetry data:', err);
@@ -24,6 +25,9 @@ export const useTelemetryData = () => {
 
   useEffect(() => {
     fetchTelemetryData();
+    // Habilitar polling simple para simular tiempo real
+    const interval = setInterval(fetchTelemetryData, 1000);
+    return () => clearInterval(interval);
   }, []);
 
   return {
@@ -45,8 +49,8 @@ export const useSensors = () => {
     try {
       setLoading(true);
       setError(null);
-      const result = await apiRequest('/telemetry/sensors/');
-      setSensors(result?.results || result || []);
+      const result = await apiRequest('/telemetry/sensors');
+      setSensors(Array.isArray(result) ? result : (result?.results || []));
     } catch (err) {
       setError(err.message);
       console.error('Error fetching sensors:', err);

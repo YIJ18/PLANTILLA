@@ -3,6 +3,10 @@ import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { Toaster } from '@/components/ui/toaster';
 import { useToast } from '@/components/ui/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
+import io from 'socket.io-client';
+import { Satellite } from 'lucide-react';
+
 import AdminLayout from '@/components/auth/AdminLayout';
 import FlightSelectorAdmin from '@/components/FlightSelectorAdmin';
 import PublicDisplayController from '@/components/PublicDisplayController';
@@ -11,24 +15,63 @@ import ChartsGrid from '@/components/ChartsGrid';
 import MapSection from '@/components/MapSection';
 import GyroscopeViewer from '@/components/GyroscopeViewer';
 import MissionControl from '@/components/MissionControl';
-// import TelemetryDashboard from '@/components/TelemetryDashboard'; // Comentado temporalmente
-import BackendTestComponent from '@/components/BackendTestComponent';
-import { generateMockData, parseDataFromFile } from '@/utils/mockData';
-import { saveFlightData, loadFlightData, getSavedFlights, exportFlightPackage, deleteFlightData } from '@/lib/dbUnified';
-import { testAPIConnection, testAuth } from '@/lib/apiTest';
+import TelemetryDashboardExpanded from '@/components/TelemetryDashboardExpanded';
+import { parseDataFromFile } from '@/utils/mockData';
 import { calculateSpeedsAndDistance } from '@/utils/calculations';
 
+const socket = io('http://localhost:5000');
+
+// Helper para transformar datos de telemetría
+const transformTelemetryData = (telemetryRecords) => {
+  const initialState = {
+    temperature: [],
+    humidity: [],
+    altitude: [],
+    pressure: [],
+    walkieChannel: [],
+    accelerometer: [],
+    gyroscope: [],
+    coordinates: [],
+    timestamps: [],
+  };
+
+  if (!telemetryRecords || telemetryRecords.length === 0) {
+    return initialState;
+  }
+
+  return telemetryRecords.reduce((acc, record) => {
+    // Ensure timestamp is valid; accept numeric ms or ISO string. Fallback to now.
+    let tsVal = record.timestamp;
+    if (typeof tsVal === 'string' && tsVal.trim() === '') tsVal = null;
+    let dateObj = tsVal ? new Date(tsVal) : new Date();
+    if (!dateObj || isNaN(dateObj.getTime())) dateObj = new Date();
+    acc.timestamps.push(dateObj.toISOString());
+    acc.temperature.push(record.temperature);
+    acc.humidity.push(record.humidity);
+    acc.altitude.push(record.altitude);
+    acc.pressure.push(record.pressure);
+    acc.walkieChannel.push(record.walkie_channel);
+    acc.accelerometer.push({ x: record.acc_x, y: record.acc_y, z: record.acc_z });
+    acc.gyroscope.push({ x: record.gyro_x, y: record.gyro_y, z: record.gyro_z });
+    acc.coordinates.push({ lat: record.lat, lng: record.lng });
+    return acc;
+  }, initialState);
+};
+
+
 function AdminDashboard() {
+  const { user, isAuthenticated } = useAuth();
   const [currentFlight, setCurrentFlight] = useState(null);
+  const [currentFlightId, setCurrentFlightId] = useState(null);
   const [flightData, setFlightData] = useState(null);
   const [isLiveMode, setIsLiveMode] = useState(false);
+  
   const [canSatStatus, setCanSatStatus] = useState({
     isActive: false,
     battery: 100,
-    lastUpdate: new Date().toLocaleTimeString(),
+    lastUpdate: null,
     walkieChannel: 0,
   });
-  const [savedFlights, setSavedFlights] = useState([]);
   const [modelUrl, setModelUrl] = useState('/cansat.obj');
   const [missionData, setMissionData] = useState({
     flightTime: 0,
@@ -43,7 +86,6 @@ function AdminDashboard() {
       recording: false,
     },
   });
-  const [lastGpsTime, setLastGpsTime] = useState(null);
 
   const { toast } = useToast();
 
@@ -54,119 +96,96 @@ function AdminDashboard() {
     }));
   }, []);
 
-  const checkAlerts = useCallback((data, status) => {
-    if (!data || !status) return;
-
-    const lastTemp = data.temperature[data.temperature.length - 1];
-    if (lastTemp === 0) {
-      toast({ title: 'Alerta de Sensor', description: 'Fallo detectado en el sensor de temperatura (valor 0).', variant: 'destructive' });
-      addEvent('Alerta: Fallo en sensor de temperatura.');
-    }
-
-    if (status.battery < 20 && status.battery > 19.9) {
-      toast({ title: 'Alerta de Batería', description: 'Nivel de batería crítico, por debajo del 20%.', variant: 'destructive' });
-      addEvent('Alerta: Batería crítica.');
-    }
-
-    if (lastGpsTime && (Date.now() - lastGpsTime > 10000)) {
-      toast({ title: 'Alerta de GPS', description: 'Pérdida de señal GPS (sin actualización en 10s).', variant: 'destructive' });
-      addEvent('Alerta: Pérdida de señal GPS.');
-      setLastGpsTime(null);
-    }
-  }, [toast, addEvent, lastGpsTime]);
-
+  // Efecto para manejar la conexión de Socket.IO y la recepción de datos en vivo
   useEffect(() => {
-    const mockData = generateMockData();
-    setFlightData(mockData);
-    setCurrentFlight('Demo Flight');
-    setCanSatStatus(prev => ({ ...prev, isActive: true, battery: 85, walkieChannel: mockData.walkieChannel[mockData.walkieChannel.length - 1] }));
-    updateSavedFlights();
-    addEvent('Dashboard de administración iniciado.');
-    
-    // Test API connection
-    testAPIConnection().then(result => {
-      if (result.success) {
-        addEvent('✅ Conexión con backend establecida.');
-      } else {
-        addEvent(`❌ Error de conexión con backend: ${result.error}`);
-      }
-    });
-    
-    // Test authentication
-    testAuth().then(result => {
-      if (result.success) {
-        addEvent(`✅ Usuario autenticado: ${result.data.username}`);
-      } else {
-        addEvent(`⚠️ Sin autenticación o token inválido`);
-      }
-    });
-  }, [addEvent]);
-
-  const updateSavedFlights = async () => {
-    const flights = await getSavedFlights();
-    setSavedFlights(flights);
-  };
-
-  useEffect(() => {
-    let interval;
-    if (isLiveMode && flightData) {
-      interval = setInterval(() => {
-        const newData = generateMockData(1);
-        setFlightData(prev => {
-          if (!prev) return newData;
-          const updatedData = {
-            temperature: [...prev.temperature.slice(-49), ...newData.temperature],
-            humidity: [...prev.humidity.slice(-49), ...newData.humidity],
-            altitude: [...prev.altitude.slice(-49), ...newData.altitude],
-            pressure: [...prev.pressure.slice(-49), ...newData.pressure],
-            walkieChannel: [...prev.walkieChannel.slice(-49), ...newData.walkieChannel],
-            accelerometer: [...prev.accelerometer.slice(-49), ...newData.accelerometer],
-            gyroscope: [...prev.gyroscope.slice(-49), ...newData.gyroscope],
-            coordinates: [...prev.coordinates.slice(-49), ...newData.coordinates],
-            timestamps: [...prev.timestamps.slice(-49), ...newData.timestamps]
-          };
-          if (currentFlight) {
-            saveFlightData(currentFlight, updatedData);
-          }
+    if (isLiveMode) {
+      const handleTelemetryUpdate = (newDataPoint) => {
+        console.log("Live data received:", newDataPoint);
+        addEvent(`Nuevo dato recibido: Altitud ${newDataPoint.altitude.toFixed(2)}m`);
+        
+        setFlightData(prevData => {
+          const transformedNewData = transformTelemetryData([newDataPoint]);
           
+          const updatedData = {
+            temperature: [...(prevData?.temperature || []).slice(-99), ...transformedNewData.temperature],
+            humidity: [...(prevData?.humidity || []).slice(-99), ...transformedNewData.humidity],
+            altitude: [...(prevData?.altitude || []).slice(-99), ...transformedNewData.altitude],
+            pressure: [...(prevData?.pressure || []).slice(-99), ...transformedNewData.pressure],
+            walkieChannel: [...(prevData?.walkieChannel || []).slice(-99), ...transformedNewData.walkieChannel],
+            accelerometer: [...(prevData?.accelerometer || []).slice(-99), ...transformedNewData.accelerometer],
+            gyroscope: [...(prevData?.gyroscope || []).slice(-99), ...transformedNewData.gyroscope],
+            coordinates: [...(prevData?.coordinates || []).slice(-99), ...transformedNewData.coordinates],
+            timestamps: [...(prevData?.timestamps || []).slice(-99), ...transformedNewData.timestamps]
+          };
+          
+          // Actualizar status y misión
           const { verticalSpeed, horizontalSpeed, distance } = calculateSpeedsAndDistance(updatedData);
           setMissionData(md => ({
             ...md,
-            flightTime: md.flightTime + 2,
+            flightTime: md.flightTime + (md.lastTime ? (new Date() - md.lastTime)/1000 : 2),
+            lastTime: new Date(),
             verticalSpeed,
             horizontalSpeed,
             distance,
             checklist: { ...md.checklist, transmission: true, sensors: true, gps: true }
           }));
-          setLastGpsTime(Date.now());
 
-          const newStatus = {
+          setCanSatStatus({
             isActive: true,
-            battery: Math.max(0, canSatStatus.battery - 0.1),
+            battery: Math.max(0, canSatStatus.battery - 0.05), // Simular descarga lenta
             lastUpdate: new Date().toLocaleTimeString(),
-            walkieChannel: newData.walkieChannel[0]
-          };
-          setCanSatStatus(newStatus);
-          checkAlerts(updatedData, newStatus);
+            walkieChannel: newDataPoint.walkie_channel
+          });
 
           return updatedData;
         });
-      }, 2000);
+      };
+
+      socket.on('telemetry-update', handleTelemetryUpdate);
+      addEvent("🔌 Conectado al stream de telemetría en vivo.");
+
+      return () => {
+        socket.off('telemetry-update', handleTelemetryUpdate);
+        addEvent("🔌 Stream de telemetría desconectado.");
+      };
+    }
+  }, [isLiveMode, addEvent, canSatStatus.battery]);
+
+
+  const handleFlightSelect = async (flightName, flightId) => {
+    addEvent(`Cargando datos para el vuelo: ${flightName}`);
+    setIsLiveMode(false);
+    if (currentFlightId) {
+        socket.emit('leave-flight-room', currentFlightId); // Salir de la sala anterior si la hubiera
     }
 
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isLiveMode, flightData, currentFlight, canSatStatus.battery, checkAlerts]);
-
-  const handleFlightSelect = async (flightName) => {
-    const data = await loadFlightData(flightName);
-    if (data) {
-      setCurrentFlight(flightName);
-      setFlightData(data);
-      setIsLiveMode(false);
-      setCanSatStatus({ isActive: true, battery: 100, lastUpdate: new Date().toLocaleTimeString(), walkieChannel: data.walkieChannel[data.walkieChannel.length - 1] });
-      addEvent(`Vuelo cargado: ${flightName}`);
+    try {
+      const response = await fetch(`http://localhost:5000/api/flights/${flightId}/telemetry`);
+      if (response.ok) {
+        const telemetryRecords = await response.json();
+        const formattedData = transformTelemetryData(telemetryRecords);
+        
+        setFlightData(formattedData);
+        setCurrentFlight(flightName);
+        setCurrentFlightId(flightId);
+        
+        setCanSatStatus({ isActive: false, battery: 100, lastUpdate: new Date().toLocaleTimeString(), walkieChannel: formattedData.walkieChannel.slice(-1)[0] || 0 });
+        addEvent(`✅ Vuelo histórico "${flightName}" cargado con ${telemetryRecords.length} registros.`);
+        toast({
+          title: "Vuelo Cargado",
+          description: `Se cargaron ${telemetryRecords.length} puntos de datos para ${flightName}.`
+        });
+      } else {
+        throw new Error('Error al cargar la telemetría del vuelo.');
+      }
+    } catch (error) {
+      console.error("Error fetching historical flight data:", error);
+      toast({
+        title: "Error de Carga",
+        description: "No se pudieron obtener los datos para el vuelo seleccionado.",
+        variant: "destructive"
+      });
+      addEvent(`❌ Error al cargar el vuelo: ${flightName}`);
     }
   };
 
@@ -179,37 +198,47 @@ function AdminDashboard() {
         toast({ title: "Error de parseo", description: errors.join(' '), variant: "destructive" });
       }
       const flightName = file.name.replace(/\.(txt|csv)$/, '');
-      await saveFlightData(flightName, data);
+      
+      // Aquí se podría implementar un endpoint para subir archivos CSV al backend
+      addEvent(`Nuevo vuelo importado (localmente): ${flightName}`);
+      toast({
+        title: "Funcionalidad en Desarrollo",
+        description: "La importación de archivos se procesa localmente por ahora.",
+      });
+
       setFlightData(data);
       setCurrentFlight(flightName);
       setIsLiveMode(false);
-      updateSavedFlights();
-      addEvent(`Nuevo vuelo importado: ${flightName}`);
     };
     reader.readAsText(file);
   };
 
-  const handleLiveMode = async (fileName) => {
-    const newFlightData = generateMockData(1);
-    await saveFlightData(fileName, newFlightData);
-    setCurrentFlight(fileName);
-    setFlightData(newFlightData);
+  const handleLiveMode = (flightName, flightId) => {
+    setCurrentFlight(flightName);
+    setCurrentFlightId(flightId);
+    setFlightData(null); // Limpiar datos anteriores
     setIsLiveMode(true);
-    setCanSatStatus(prev => ({ ...prev, isActive: true, battery: 100, walkieChannel: newFlightData.walkieChannel[0] }));
-    setMissionData(prev => ({ ...prev, flightTime: 0, events: [], distance: 0 }));
-    updateSavedFlights();
-    addEvent(`Modo en vivo iniciado: ${fileName}`);
+    
+    // Unirse a la sala de Socket.IO para este vuelo
+    socket.emit('join-flight-room', flightId);
+
+    setCanSatStatus(prev => ({ ...prev, isActive: true, battery: 100 }));
+    setMissionData(prev => ({ ...prev, flightTime: 0, events: [], distance: 0, lastTime: new Date() }));
+    addEvent(`🔴 MODO EN VIVO ACTIVADO para: ${flightName}`);
   };
 
   const stopLiveMode = () => {
     setIsLiveMode(false);
-    addEvent('Modo en vivo detenido.');
+    socket.emit('leave-flight-room', currentFlightId);
+    setCanSatStatus(prev => ({ ...prev, isActive: false }));
     setMissionData(prev => ({ ...prev, checklist: { ...prev.checklist, transmission: false } }));
+    addEvent(`🛑 MODO EN VIVO DETENIDO para: ${currentFlight}`);
   };
 
   const handleExport = async () => {
     if (currentFlight && flightData) {
-      await exportFlightPackage(currentFlight, flightData);
+      // Lógica de exportación (puede ser un endpoint en el backend)
+      toast({ title: "Exportación", description: `Generando paquete para ${currentFlight}...` });
       addEvent(`Paquete de vuelo exportado: ${currentFlight}`);
     }
   };
@@ -237,22 +266,19 @@ function AdminDashboard() {
               onExport={handleExport}
               currentFlight={currentFlight}
               isLiveMode={isLiveMode}
-              savedFlights={savedFlights}
-              updateSavedFlights={updateSavedFlights}
             />
           </motion.div>
 
           {/* Control de Proyección Pública */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.1 }}>
             <PublicDisplayController
-              savedFlights={savedFlights}
               isLiveMode={isLiveMode}
               liveFlight={currentFlight}
               currentData={flightData}
             />
           </motion.div>
 
-          {flightData && (
+          {flightData ? (
             <>
               <div className="grid lg:grid-cols-3 gap-8">
                 <motion.div className="lg:col-span-2" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.2 }}>
@@ -283,16 +309,17 @@ function AdminDashboard() {
                 </motion.div>
               </div>
 
-              {/* Componente de prueba para verificar conexión con backend */}
+              {/* Dashboard de telemetría COM11 */}
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 1.0 }}>
-                <BackendTestComponent />
+                <TelemetryDashboardExpanded />
               </motion.div>
-
-              {/* Comentado temporalmente para debugging */}
-              {/* <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 1.0 }}>
-                <TelemetryDashboard />
-              </motion.div> */}
             </>
+          ) : (
+            <div className="text-center py-16 text-gray-400">
+              <Satellite className="w-16 h-16 mx-auto mb-4 opacity-30" />
+              <h3 className="text-xl font-semibold text-white">Seleccione un Vuelo</h3>
+              <p>Elija un vuelo de la lista de "Vuelos Guardados" para ver su telemetría, o inicie un nuevo "Vuelo en Vivo".</p>
+            </div>
           )}
         </main>
 

@@ -82,9 +82,9 @@ const TelemetryDashboard = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-white">Telemetría en Tiempo Real</h2>
-        <div className="flex items-center space-x-2 text-green-400">
+  <div className="flex items-center space-x-2 text-green-400">
           <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-          <span className="text-sm">Conectado al Backend Django</span>
+          <span className="text-sm">Conectado al Backend Node</span>
         </div>
       </div>
 
@@ -150,7 +150,7 @@ const TelemetryDashboard = () => {
               No hay sensores configurados
             </h3>
             <p className="text-gray-400 text-sm">
-              Configura sensores en el backend Django para ver datos de telemetría aquí.
+              Configura sensores en el backend Node para ver datos de telemetría aquí.
             </p>
           </CardContent>
         </Card>
