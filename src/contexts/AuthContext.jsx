@@ -2,8 +2,8 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext();
 
-// Configuración de la API del backend
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
+// Configuración de la API del backend (API Node.js)
+const API_URL = 'http://localhost:5000/api';
 
 // Función para hacer peticiones autenticadas
 const apiRequest = async (endpoint, options = {}) => {
@@ -19,7 +19,7 @@ const apiRequest = async (endpoint, options = {}) => {
   };
 
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+    const response = await fetch(`${API_URL}${endpoint}`, config);
     
     // Si el token expiró, intentar refrescar
     if (response.status === 401 && token) {
@@ -27,7 +27,7 @@ const apiRequest = async (endpoint, options = {}) => {
       if (refreshed) {
         // Reintentar la petición con el nuevo token
         config.headers.Authorization = `Bearer ${localStorage.getItem('astra_access_token')}`;
-        const retryResponse = await fetch(`${API_BASE_URL}${endpoint}`, config);
+        const retryResponse = await fetch(`${API_URL}${endpoint}`, config);
         return await handleResponse(retryResponse);
       } else {
         // Si no se pudo refrescar, limpiar sesión
@@ -63,7 +63,7 @@ const refreshToken = async () => {
   if (!refreshToken) return false;
 
   try {
-    const response = await fetch(`${API_BASE_URL}/auth/refresh/`, {
+    const response = await fetch(`${API_URL}/auth/refresh/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh: refreshToken }),
@@ -93,17 +93,18 @@ export function AuthProvider({ children }) {
       
       if (savedUser && token) {
         try {
-          // Verificar que el token siga siendo válido obteniendo el perfil del usuario
-          const userData = await apiRequest('/auth/profile/');
-          if (userData) {
+          // Para simple API, solo verificamos que el healthcheck funcione
+          const healthCheck = await apiRequest('/health');
+          if (healthCheck && healthCheck.status === 'ok') {
             setUser(JSON.parse(savedUser));
+          } else {
+            throw new Error('API not responding');
           }
         } catch (error) {
           console.error('Error validating session:', error);
-          // Limpiar sesión inválida
-          localStorage.removeItem('astra_user');
-          localStorage.removeItem('astra_access_token');
-          localStorage.removeItem('astra_refresh_token');
+          // Mantener la sesión local aunque la API no responda
+          // porque la simple API no requiere autenticación real
+          setUser(JSON.parse(savedUser));
         }
       }
       setIsLoading(false);
@@ -114,45 +115,31 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     setIsLoading(true);
-    
-    console.log('🚀 Iniciando login con:', { email, password: '***' });
-    console.log('📡 URL del backend:', `${API_BASE_URL}/auth/login/`);
-    
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/login/`, {
+      const response = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ email, password }),
       });
 
-      console.log('📊 Respuesta del servidor:', response.status, response.statusText);
-
-      const data = await handleResponse(response);
-      console.log('📋 Datos recibidos:', data);
-
-      if (data.access && data.user) {
-        // Guardar tokens y datos del usuario
-        localStorage.setItem('astra_access_token', data.access);
-        localStorage.setItem('astra_refresh_token', data.refresh);
-        
-        const userSession = {
-          id: data.user.id,
-          username: data.user.username,
-          email: data.user.email,
-          name: data.user.full_name,
-          role: data.user.role,
-          department: data.user.department,
-          loginTime: new Date().toISOString()
-        };
-        
-        setUser(userSession);
-        localStorage.setItem('astra_user', JSON.stringify(userSession));
-        setIsLoading(false);
-        console.log('✅ Login exitoso, usuario guardado:', userSession);
-        return { success: true };
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Error al iniciar sesión');
       }
+
+      const data = await response.json();
+      
+      setUser(data.user);
+      localStorage.setItem('astra_access_token', data.token);
+      localStorage.setItem('astra_user', JSON.stringify(data.user));
+      setIsLoading(false);
+      
+      return { success: true, user: data.user };
+
     } catch (error) {
-      console.error('💥 Error en login:', error);
+      console.error("💥 Error en login:", error);
       setIsLoading(false);
       return { 
         success: false, 

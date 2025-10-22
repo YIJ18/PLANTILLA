@@ -7,7 +7,11 @@ import PublicDashboard from '@/pages/PublicDashboard';
 import AdminDashboard from '@/pages/AdminDashboard';
 import LoginForm from '@/components/auth/LoginForm';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
+import api from '@/lib/api';
 import '@/index.css';
+
+// Hacer la API disponible globalmente para componentes
+window.api = api;
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

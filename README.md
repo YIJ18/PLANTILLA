@@ -1,5 +1,7 @@
 # 🚀 Astra CanSat Dashboard - Estación de Misión Caelus
 
+> Nota importante: El backend activo del proyecto es Node (Express + serialport) bajo `backend/node-api/index.js`. Las secciones que mencionan Django/Python en este README son material legado que se conservará como referencia histórica, pero no forman parte del flujo actual. Para desarrollar o ejecutar: usa `npm install` y `npm run dev` (esto inicia API Node en :5000 y Vite en :3000).
+
 ![Astra Rocketry](./public/logo.png)
 
 ## 📖 Descripción

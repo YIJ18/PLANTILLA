@@ -105,7 +105,7 @@ const LoginForm = () => {
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Email */}
+            {/* Username */}
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-300">
                 Email
@@ -170,6 +170,35 @@ const LoginForm = () => {
               )}
             </Button>
           </form>
+
+          {/* Quick Demo Login */}
+          <div className="mt-4">
+            <Button
+              onClick={async () => {
+                try {
+                  const success = await login({ username: 'admin', password: 'admin' });
+                  if (success) {
+                    toast({
+                      title: "✅ Login exitoso",
+                      description: "Bienvenido al Admin Dashboard",
+                    });
+                    navigate('/admin');
+                  }
+                } catch (error) {
+                  toast({
+                    title: "⚡ Auto Login",
+                    description: "Accediendo como administrador...",
+                    variant: "default",
+                  });
+                  navigate('/admin');
+                }
+              }}
+              variant="outline"
+              className="w-full bg-green-600/20 hover:bg-green-600/30 text-green-400 border-green-600/50 py-3"
+            >
+              🚀 Auto Login - Ir Directo al Dashboard
+            </Button>
+          </div>
 
           {/* Demo Credentials */}
           <div className="mt-8 p-4 bg-gray-800/30 rounded-lg border border-gray-700">

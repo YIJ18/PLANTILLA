@@ -31,14 +31,14 @@ const PublicDisplayController = ({
 
   const [selectedFlight, setSelectedFlight] = useState('');
 
-  // Actualizar datos en vivo si están en modo live
+  // Actualizar datos en vivo si están en modo live - SIN BUCLE INFINITO
   React.useEffect(() => {
     if (isLiveMode && currentData && publicDisplayState.isLiveMode) {
       updateLiveData(currentData);
     }
-  }, [currentData, isLiveMode, publicDisplayState.isLiveMode, updateLiveData]);
+  }, [currentData, isLiveMode, publicDisplayState.isLiveMode]); // Removido updateLiveData para evitar bucle
 
-  // Sistema de heartbeat para mantener sincronización
+  // Sistema de heartbeat para mantener sincronización - OPTIMIZADO
   React.useEffect(() => {
     let interval;
     if (publicDisplayState.isLiveMode && isLiveMode) {
@@ -46,14 +46,14 @@ const PublicDisplayController = ({
         if (currentData) {
           updateLiveData(currentData);
         }
-      }, 200); // Actualizar cada 200ms para máxima fluidez
+      }, 1000); // Reducido a 1 segundo para evitar sobrecarga
     }
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [publicDisplayState.isLiveMode, isLiveMode, currentData, updateLiveData]);
+  }, [publicDisplayState.isLiveMode, isLiveMode]); // Removido currentData y updateLiveData para evitar bucle
 
-  // Forzar actualización de componentes cada segundo
+  // Forzar actualización de componentes cada segundo - OPTIMIZADO
   React.useEffect(() => {
     let forceUpdateInterval;
     if (publicDisplayState.isLiveMode) {
@@ -62,7 +62,7 @@ const PublicDisplayController = ({
         window.dispatchEvent(new CustomEvent('publicDataUpdate', { 
           detail: { timestamp: Date.now() } 
         }));
-      }, 1000);
+      }, 2000); // Aumentado a 2 segundos para evitar sobrecarga
     }
     return () => {
       if (forceUpdateInterval) clearInterval(forceUpdateInterval);
@@ -126,7 +126,7 @@ const PublicDisplayController = ({
               className="w-full p-3 bg-gray-800 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none"
             >
               <option value="">Seleccionar vuelo...</option>
-              {savedFlights.map((flight) => (
+              {(savedFlights || []).map((flight) => (
                 <option key={flight} value={flight}>
                   {flight}
                 </option>

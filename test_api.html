@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Prueba API COM11</title>
+    <style>
+        body { font-family: Arial; margin: 20px; }
+        button { padding: 10px 20px; margin: 10px; font-size: 16px; }
+        .start { background: green; color: white; }
+        .stop { background: red; color: white; }
+        .status { background: blue; color: white; }
+        #output { border: 1px solid #ccc; padding: 10px; margin: 10px 0; height: 300px; overflow-y: scroll; }
+    </style>
+</head>
+<body>
+    <h1>🛰️ Prueba API COM11 ASTRA</h1>
+    
+    <button class="start" onclick="startSerial()">🚀 Iniciar Lectura COM11</button>
+    <button class="stop" onclick="stopSerial()">⏹️ Detener Lectura COM11</button>
+    <button class="status" onclick="checkStatus()">📊 Ver Estado</button>
+    <button onclick="listFiles()">📁 Listar CSV</button>
+    
+    <div id="output"></div>
+
+    <script>
+        function log(message) {
+            const output = document.getElementById('output');
+            output.innerHTML += new Date().toLocaleTimeString() + ': ' + message + '<br>';
+            output.scrollTop = output.scrollHeight;
+        }
+
+        async function startSerial() {
+            log('🚀 Iniciando lectura COM11...');
+            try {
+                const response = await fetch('http://127.0.0.1:5000/api/serial/start', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        flight_name: 'vuelo_desde_web_' + Date.now()
+                    })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    log('✅ ' + data.message);
+                    if (data.filename) log('📁 Archivo: ' + data.filename);
+                } else {
+                    log('❌ Error: ' + data.error);
+                }
+            } catch (error) {
+                log('❌ Error de conexión: ' + error.message);
+            }
+        }
+
+        async function stopSerial() {
+            log('⏹️ Deteniendo lectura COM11...');
+            try {
+                const response = await fetch('http://127.0.0.1:5000/api/serial/stop', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    log('✅ ' + data.message);
+                } else {
+                    log('❌ Error: ' + data.error);
+                }
+            } catch (error) {
+                log('❌ Error de conexión: ' + error.message);
+            }
+        }
+
+        async function checkStatus() {
+            log('📊 Verificando estado...');
+            try {
+                const response = await fetch('http://127.0.0.1:5000/api/serial/status');
+                const data = await response.json();
+                log('📊 Estado: ' + (data.is_active ? 'EJECUTÁNDOSE' : 'DETENIDO'));
+                if (data.flight_name) {
+                    log('🎯 Vuelo actual: ' + data.flight_name);
+                }
+            } catch (error) {
+                log('❌ Error de conexión: ' + error.message);
+            }
+        }
+
+        async function listFiles() {
+            log('📁 Listando archivos CSV...');
+            try {
+                const response = await fetch('http://127.0.0.1:5000/api/flights/csv');
+                const data = await response.json();
+                log('📁 Archivos encontrados: ' + data.count);
+                data.files.forEach(file => {
+                    log('📄 ' + file.name + ' (' + Math.round(file.size/1024) + ' KB)');
+                });
+            } catch (error) {
+                log('❌ Error de conexión: ' + error.message);
+            }
+        }
+
+        // Verificar conexión al cargar
+        window.onload = function() {
+            log('🌐 Página cargada, verificando conexión...');
+            fetch('http://127.0.0.1:5000/api/health')
+                .then(response => response.json())
+                .then(data => log('✅ Conectado a API Node: ' + data.message))
+                .catch(error => log('❌ No se puede conectar a API Node'));
+        };
+    </script>
+</body>
+</html>

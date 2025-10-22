@@ -1,0 +1,2 @@
+print("Este proyecto migró a Node (Express + serialport). El archivo backend/simple_serial_reader.py ya no se utiliza.")
+print("Use los endpoints de Node en http://127.0.0.1:5000/api, por ejemplo /api/serial/start")
