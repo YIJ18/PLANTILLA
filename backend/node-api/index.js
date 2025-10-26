@@ -29,6 +29,85 @@ app.use('/api/auth', authRoutes);
 const serialService = require('./services/serialService');
 serialService.init(db, io);
 
+// Export endpoint: build CSVs of given tables and stream a ZIP
+const archiver = require('archiver');
+const stream = require('stream');
+
+app.get('/api/export/all-csv', async (req, res) => {
+  try {
+    // Allow filtering by flightId or flightName
+    const { flightId: qFlightId, flightName } = req.query || {};
+    let resolvedFlightId = null;
+    if (qFlightId) resolvedFlightId = Number(qFlightId);
+    else if (flightName) {
+      try {
+        const f = await db('flights').where({ name: flightName }).first();
+        if (f && f.id) resolvedFlightId = Number(f.id);
+      } catch (e) {
+        // ignore - we'll fallback to exporting all tables
+      }
+    }
+
+    // If a flight id is provided/resolved, only export flight-scoped tables
+    const allTables = ['flight_events','flights','knex_migrations','knex_migrations_lock','sqlite_sequence','telemetry_data','users'];
+    const tables = resolvedFlightId ? ['flights','telemetry_data','flight_events'] : allTables;
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="astra_export_${Date.now()}.zip"`);
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err) => { throw err; });
+    archive.pipe(res);
+
+    // Helper: convert rows to CSV string
+    const toCSV = (rows) => {
+      if (!rows || rows.length === 0) return '';
+      const cols = Object.keys(rows[0]);
+      const escape = (v) => {
+        if (v === null || v === undefined) return '';
+        const s = String(v);
+        if (s.includes(',') || s.includes('"') || s.includes('\n')) return '"' + s.replace(/"/g, '""') + '"';
+        return s;
+      };
+      const header = cols.join(',') + '\n';
+      const lines = rows.map(r => cols.map(c => escape(r[c])).join(',')).join('\n');
+      return header + lines + '\n';
+    };
+
+    for (const t of tables) {
+      try {
+        let rows = [];
+        if (resolvedFlightId) {
+          if (t === 'flights') {
+            const row = await db('flights').where({ id: resolvedFlightId }).select('*');
+            rows = row || [];
+          } else if (t === 'telemetry_data') {
+            rows = await db('telemetry_data').where({ flight_id: resolvedFlightId }).select('*');
+          } else if (t === 'flight_events') {
+            rows = await db('flight_events').where({ flight_id: resolvedFlightId }).select('*');
+          } else {
+            rows = await db(t).select('*');
+          }
+        } else {
+          rows = await db(t).select('*');
+        }
+        const csv = toCSV(rows);
+        // Name files so flight-scoped ones include the flight id when applicable
+        const filename = resolvedFlightId ? `${t}_flight_${resolvedFlightId}.csv` : `${t}.csv`;
+        archive.append(csv, { name: filename });
+      } catch (e) {
+        // On error, include a small text file describing the error
+        archive.append(`Error exporting table ${t}: ${e.message}\n`, { name: `${t}_error.txt` });
+      }
+    }
+
+    await archive.finalize();
+  } catch (error) {
+    console.error('Error in /api/export/all-csv:', error);
+    res.status(500).json({ message: 'Error al generar el paquete de exportación.', error: error.message });
+  }
+});
+
 // --- Endpoints de la API ---
 
 // Endpoint de salud para verificar que el servidor está funcionando
@@ -80,6 +159,7 @@ app.get('/api/debug/serial', (req, res) => {
 // Start a flight and listen to COM port
 app.post('/api/flights/start', async (req, res) => {
   const { flightName, port, baudRate } = req.body;
+  const { createOnly } = req.body || {};
   try {
     if (typeof serialService.isReading === 'function' ? serialService.isReading() : serialService.isReading) {
       return res.status(409).json({ message: 'Un vuelo ya está en progreso.' });
@@ -88,12 +168,74 @@ app.post('/api/flights/start', async (req, res) => {
     console.warn('No se pudo comprobar el estado de lectura del servicio serial:', e.message || e);
   }
   try {
+    // If frontend requested to only create the flight row (no serial), support that for test/dev
+    if (createOnly) {
+      if (!flightName) return res.status(400).json({ message: 'flightName requerido cuando createOnly=true' });
+      try {
+        // Reuse creation logic similar to /api/flights/create
+        let insertResult;
+        try {
+          insertResult = await db('flights').insert({ name: flightName, start_time: new Date().toISOString() }).returning('id');
+        } catch (e) {
+          const ids = await db('flights').insert({ name: flightName, start_time: new Date().toISOString() });
+          insertResult = ids;
+        }
+        let resolvedId = null;
+        if (Array.isArray(insertResult) && insertResult.length > 0) {
+          const first = insertResult[0];
+          if (typeof first === 'object' && first !== null && ('id' in first)) resolvedId = first.id;
+          else if (typeof first === 'number' || typeof first === 'string') resolvedId = Number(first);
+        } else if (typeof insertResult === 'number' || typeof insertResult === 'string') {
+          resolvedId = Number(insertResult);
+        }
+        if (!resolvedId) {
+          const row = await db('flights').max('id as id').first();
+          resolvedId = row && row.id ? Number(row.id) : null;
+        }
+        if (!resolvedId) return res.status(500).json({ message: 'No se pudo crear el vuelo' });
+        return res.status(201).json({ success: true, flightId: resolvedId, flightName });
+      } catch (error) {
+        console.error('Error creating flight (createOnly):', error);
+        return res.status(500).json({ success: false, message: 'Error interno al crear vuelo', error: error.message });
+      }
+    }
     const result = await serialService.startReading(flightName, port, baudRate);
     res.status(201).json(result);
   } catch (error) {
     console.error('Error en el endpoint /api/flights/start:', error.message);
     // Enviar un error 500 con un mensaje más específico
     res.status(500).json({ message: `No se pudo iniciar el vuelo: ${error.message}` });
+  }
+});
+
+// Test-only endpoint: create a flight row without starting serial port (useful for automated tests)
+app.post('/api/flights/create', async (req, res) => {
+  const { flightName } = req.body || {};
+  if (!flightName) return res.status(400).json({ message: 'flightName requerido' });
+  try {
+    let insertResult;
+    try {
+      insertResult = await db('flights').insert({ name: flightName, start_time: new Date().toISOString() }).returning('id');
+    } catch (e) {
+      // sqlite fallback
+      const ids = await db('flights').insert({ name: flightName, start_time: new Date().toISOString() });
+      insertResult = ids;
+    }
+    let resolvedId = null;
+    if (Array.isArray(insertResult) && insertResult.length > 0) {
+      const first = insertResult[0];
+      if (typeof first === 'object' && first !== null && ('id' in first)) resolvedId = first.id;
+      else if (typeof first === 'number' || typeof first === 'string') resolvedId = Number(first);
+    } else if (typeof insertResult === 'number' || typeof insertResult === 'string') resolvedId = Number(insertResult);
+    if (!resolvedId) {
+      const row = await db('flights').max('id as id').first();
+      resolvedId = row && row.id ? Number(row.id) : null;
+    }
+    if (!resolvedId) return res.status(500).json({ message: 'No se pudo crear el vuelo' });
+    res.status(201).json({ success: true, flightId: resolvedId, flightName });
+  } catch (error) {
+    console.error('Error creating test flight:', error);
+    res.status(500).json({ success: false, message: 'Error interno al crear vuelo', error: error.message });
   }
 });
 
@@ -417,12 +559,44 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Admin can request a public projection to start/stop for all public clients
+  socket.on('public-projection-start', (payload) => {
+    try {
+      console.log('Received public-projection-start from', socket.id, payload);
+      // Broadcast to all connected clients that a public projection should start
+      io.emit('public-projection-start', payload);
+    } catch (e) {
+      console.warn('Error handling public-projection-start:', e && e.message ? e.message : e);
+    }
+  });
+
+  socket.on('public-projection-stop', (payload) => {
+    try {
+      console.log('Received public-projection-stop from', socket.id, payload);
+      io.emit('public-projection-stop', payload || {});
+    } catch (e) {
+      console.warn('Error handling public-projection-stop:', e && e.message ? e.message : e);
+    }
+  });
+
   // Aquí se añadirán más eventos de socket para telemetría
 });
 
 
 // --- Iniciar Servidor ---
 const PORT = process.env.PORT || 5000; // Cambiado a 5000 para evitar conflicto con Vite
+// Handle server listen errors (EADDRINUSE) with a friendly message for devs
+server.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') {
+    console.error(`Puerto ${PORT} ya está en uso. Asegúrate de no tener otra instancia del servidor ejecutándose.`);
+    console.error('Puedes listar procesos con: Get-Process -Id (Get-NetTCPConnection -LocalPort 5000).OwningProcess  (PowerShell) o usar el Administrador de Tareas para terminar el proceso.');
+  } else {
+    console.error('Server error:', err && err.message ? err.message : err);
+  }
+  // Let the process exit with non-zero code after logging
+  process.exit(1);
+});
+
 server.listen(PORT, () => {
   console.log(`🛰️  Servidor Node.js escuchando en el puerto ${PORT}`);
   console.log(`📡 Socket.IO listo para recibir conexiones.`);

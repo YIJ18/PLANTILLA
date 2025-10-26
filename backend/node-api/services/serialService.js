@@ -12,9 +12,22 @@ function emitTelemetryToFlight(flightId, payload) {
   try {
     if (io && flightId) {
       const room = `flight-${flightId}`;
+      // Debug logging to help trace why public clients may not receive telemetry
+      try {
+        const summary = {
+          room,
+          flightId,
+          ts: payload && payload.timestamp,
+          keys: payload ? Object.keys(payload).slice(0,6) : []
+        };
+        console.debug('[emitTelemetryToFlight] Emitting telemetry to room:', summary);
+      } catch (logErr) {
+        // ignore logging failures
+      }
       io.to(room).emit('telemetry-update', payload);
     } else if (io) {
       // fallback to global emit if no flightId
+      console.debug('[emitTelemetryToFlight] Emitting telemetry globally (no flightId)', { payloadKeys: payload ? Object.keys(payload).slice(0,6) : [] });
       io.emit('telemetry-update', payload);
     }
   } catch (e) {
@@ -27,8 +40,12 @@ function emitEventToFlight(flightId, eventName, payload) {
   try {
     if (io && flightId) {
       const room = `flight-${flightId}`;
+      try {
+        console.debug('[emitEventToFlight] Emitting event', { room, eventName, payloadSummary: payload && { flightId: payload.flightId, type: payload.type } });
+      } catch (e) {}
       io.to(room).emit(eventName, payload);
     } else if (io) {
+      try { console.debug('[emitEventToFlight] Emitting event globally', { eventName }); } catch (e) {}
       io.emit(eventName, payload);
     }
   } catch (e) {
@@ -44,11 +61,13 @@ let isReading = false;
 let packetBuffer = [];
 let packetTimer = null;
 const PACKET_TIMEOUT_MS = 150; // ms to wait for packet lines to accumulate
+// Track last alerted sensor states per flight to avoid spamming repeated alerts
+const lastAlerts = {}; // { [flightId]: { sensorName: boolean } }
 
 /**
  * Inicia la lectura del puerto serial para un nuevo vuelo.
  * @param {string} flightName - El nombre del vuelo.
- * @param {string} portPath - La ruta del puerto serial (ej. 'COM11').
+ * @param {string} portPath - La ruta del puerto serial (ej. 'COM5').
  * @param {number} baudRate - La velocidad en baudios.
  * @returns {object} - Objeto con el resultado de la operación.
  */
@@ -62,7 +81,57 @@ async function startReading(flightName, portPath, baudRate) {
   isReading = true;
 
   try {
-    // --- Database Insertion Step ---
+    // --- Serial Port Setup Step (open first, avoid creating a DB row if port missing) ---
+    // Create port but don't auto-open to control timing
+    let tempPort;
+    try {
+      tempPort = new SerialPort({ path: portPath, baudRate: baudRate, autoOpen: false });
+    } catch (e) {
+      // constructor may throw for invalid args
+      console.error('Failed creating SerialPort instance:', e && e.message ? e.message : e);
+      throw e;
+    }
+
+    // Attempt to open the port within a timeout
+    try {
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Timeout waiting for serial port to open')), 4000);
+        tempPort.open((err) => {
+          clearTimeout(timeout);
+          if (err) return reject(err);
+          return resolve();
+        });
+      });
+    } catch (openErr) {
+      // If the serial port failed to open, propagate error so no DB row is created
+      console.error('Error en el puerto serial:', openErr && openErr.message ? openErr.message : openErr);
+      throw openErr;
+    }
+
+    // At this point the physical COM port is open. Attach parser/handlers to tempPort
+    port = tempPort;
+    parser = port.pipe(new ReadlineParser({ delimiter: '\r\n' }));
+
+    // Attach data handler
+    parser.on('data', (data) => {
+      try {
+        console.log('[Serial RAW]', data);
+      } catch (e) {}
+      try {
+        handleSerialRaw(data);
+      } catch (err) {
+        console.error('Error handling raw serial data:', err);
+      }
+    });
+
+    // Attach error handler that will stop reading if port errors after open
+    port.on('error', (err) => {
+      console.error('Error en el puerto serial:', err);
+      // Ensure we attempt to stop and cleanup
+      try { stopReading(); } catch (e) { console.error('Error during stopReading after port error:', e); }
+    });
+
+    // --- Database Insertion Step (only after port opened successfully) ---
     try {
       // Knex + SQLite can return different shapes from insert(). Try common patterns and fallbacks.
       let insertResult;
@@ -113,81 +182,56 @@ async function startReading(flightName, portPath, baudRate) {
 
     } catch (dbError) {
       console.error("No se pudo guardar el vuelo en la base de datos: error...", dbError);
+      // If DB insert fails, close the already-opened port to avoid leaking
+      try {
+        if (port && port.isOpen) {
+          port.close(() => {});
+        }
+      } catch (closeErr) {
+        console.warn('Failed to close serial port after DB insert error:', closeErr && closeErr.message ? closeErr.message : closeErr);
+      }
       isReading = false; // Reset state on DB failure
       throw dbError; // Propagate the error to the main catch block
     }
 
-  // --- Serial Port Setup Step ---
-  port = new SerialPort({ path: portPath, baudRate: baudRate });
-    parser = port.pipe(new ReadlineParser({ delimiter: '\r\n' }));
-
-    // Attach data handler
-    parser.on('data', (data) => {
-      try {
-        console.log('[Serial RAW]', data);
-      } catch (e) {}
-      try {
-        handleSerialRaw(data);
-      } catch (err) {
-        console.error('Error handling raw serial data:', err);
-      }
-    });
-
-    // Attach error handler that will stop reading if port errors after open
-    port.on('error', (err) => {
-      console.error('Error en el puerto serial:', err);
-      // Ensure we attempt to stop and cleanup
-      try { stopReading(); } catch (e) { console.error('Error during stopReading after port error:', e); }
-    });
-
-    // Wait for the port to open (or error) before confirming the flight start
+    // Emit a global 'flight_started' after the port has been successfully opened and flight row created
     try {
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('Timeout waiting for serial port to open'));
-        }, 4000);
-
-        port.once('open', () => {
-          clearTimeout(timeout);
-          console.log(`Puerto serial ${portPath} abierto para el vuelo ID: ${currentFlightId}`);
-          resolve();
-        });
-
-        port.once('error', (err) => {
-          clearTimeout(timeout);
-          reject(err);
-        });
-      });
-
-      // Emit a global 'flight_started' after the port has been successfully opened
-      try {
-        io.emit('flight_started', { id: currentFlightId, name: flightName });
-      } catch (e) {
-        console.warn('Could not emit flight_started event:', e && e.message ? e.message : e);
-      }
-
-      return { success: true, message: `Vuelo '${flightName}' iniciado con éxito.`, flightId: currentFlightId, flightName };
-    } catch (openErr) {
-      // If the serial port failed to open, remove the created flight row to avoid orphaned entries
-      console.error('Error opening serial port:', openErr && openErr.message ? openErr.message : openErr);
-      try {
-        if (currentFlightId) {
-          await db('flights').where({ id: currentFlightId }).del();
-          console.log(`Removed flight record ${currentFlightId} due to serial port open failure.`);
-        }
-      } catch (delErr) {
-        console.warn('Failed to remove flight record after start failure:', delErr && delErr.message ? delErr.message : delErr);
-      }
-      isReading = false;
-      currentFlightId = null;
-      throw openErr;
+      io.emit('flight_started', { id: currentFlightId, name: flightName });
+    } catch (e) {
+      console.warn('Could not emit flight_started event:', e && e.message ? e.message : e);
     }
 
-  } catch (error) {
-    console.error('Error en el proceso de startReading:', error.message);
-    isReading = false; 
+    return { success: true, message: `Vuelo '${flightName}' iniciado con éxito.`, flightId: currentFlightId, flightName };
+
+
+    } catch (error) {
+    // If the error originates from attempting to open the serial port, make the message explicit
+    const msg = (error && error.message) ? error.message : String(error);
+    console.error('Error en el proceso de startReading:', msg);
+
+    // If it's a serial port open failure, translate to a user-friendly message
+    let userMessage = 'Fallo el proceso de inicio de vuelo.';
+    if (/open|no such file|file not found|could not open|Error: Opening|Opening/i.test(msg)) {
+      userMessage = 'El receptor no está conectado!';
+    }
+
+    // Ensure any opened port is closed to avoid resource leak
+    try {
+      if (port && port.isOpen) {
+        port.close(() => {});
+      }
+    } catch (closeErr) {
+      console.warn('Error closing port after failed start:', closeErr && closeErr.message ? closeErr.message : closeErr);
+    }
+
+    // Reset state
+    isReading = false;
     currentFlightId = null;
-    throw new Error('Fallo el proceso de inicio de vuelo.');
+
+    // Throw an Error with the user-facing message so API can forward it
+    const e = new Error(userMessage);
+    e.original = error;
+    throw e;
   }
 }
 
@@ -262,11 +306,16 @@ async function handleSerialData(line) {
     if (telemetry) {
         // Es un dato de telemetría válido
         const ts = Date.now();
-        await db('telemetry_data').insert({
-          flight_id: currentFlightId,
-          timestamp: ts,
-          ...telemetry
-        });
+        try {
+          const insertRes = await db('telemetry_data').insert({
+            flight_id: currentFlightId,
+            timestamp: ts,
+            ...telemetry
+          });
+          console.log('[DB] telemetry_data insert result:', insertRes);
+        } catch (dbErr) {
+          console.error('[DB ERROR] Failed inserting telemetry_data:', dbErr);
+        }
 
         // Emitir una forma consistente que el frontend espera
         const emitted = {
@@ -287,17 +336,28 @@ async function handleSerialData(line) {
           lng: telemetry.longitude ?? null,
         };
   emitTelemetryToFlight(currentFlightId, emitted);
+        // Check for zero-valued sensors and create alerts if necessary
+        try {
+          await checkAndInsertAlerts(currentFlightId, emitted);
+        } catch (e) {
+          console.warn('Failed checking/inserting alerts:', e);
+        }
     } else {
       // 2. Si no es telemetría, tratarlo como un evento/alerta
       const event = parseEventData(line);
       if (event) {
         // Save event
-        await db('flight_events').insert({
-          flight_id: currentFlightId,
-          event_type: event.type,
-          source: event.source,
-          message: event.message
-        });
+        try {
+          const insertEv = await db('flight_events').insert({
+            flight_id: currentFlightId,
+            event_type: event.type,
+            source: event.source,
+            message: event.message
+          });
+          console.log('[DB] flight_events insert result:', insertEv);
+        } catch (dbErr) {
+          console.error('[DB ERROR] Failed inserting flight_events:', dbErr);
+        }
   emitEventToFlight(currentFlightId, 'flight-event', { flightId: currentFlightId, ...event });
         console.log(`[Event] [${event.type.toUpperCase()}] from ${event.source}: ${event.message}`);
 
@@ -682,12 +742,13 @@ function hasMeaningfulTelemetry(t) {
     // Insert a single telemetry row representing this packet
     if (currentFlightId) {
       const ts = Date.now();
-      try {
-        // Always insert merged telemetry rows, even if values are zeros.
-        await db('telemetry_data').insert({ flight_id: currentFlightId, timestamp: ts, ...mergedTelemetry });
-      } catch (e) {
-        console.error('DB insert error for merged telemetry:', e);
-      }
+        try {
+          // Always insert merged telemetry rows, even if values are zeros.
+          const res = await db('telemetry_data').insert({ flight_id: currentFlightId, timestamp: ts, ...mergedTelemetry });
+          console.log('[DB] merged telemetry insert result:', res);
+        } catch (e) {
+          console.error('[DB ERROR] DB insert error for merged telemetry:', e);
+        }
 
       // Emit normalized telemetry
       const emitted = {

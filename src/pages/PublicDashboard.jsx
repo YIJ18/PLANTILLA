@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { Toaster } from '@/components/ui/toaster';
@@ -11,349 +11,363 @@ import ChartsGrid from '@/components/ChartsGrid';
 import MapSection from '@/components/MapSection';
 import GyroscopeViewer from '@/components/GyroscopeViewer';
 import MissionControl from '@/components/MissionControl';
-import { generateMockData, parseDataFromFile } from '@/utils/mockData';
+import io from 'socket.io-client';
 import { loadFlightData, getSavedFlights } from '@/lib/dbUnified';
 import { calculateSpeedsAndDistance } from '@/utils/calculations';
 
-function PublicDashboard() {
+// PublicDashboard: single, clean implementation.
+export default function PublicDashboard() {
   const [currentFlight, setCurrentFlight] = useState(null);
   const [flightData, setFlightData] = useState(null);
-  const [canSatStatus, setCanSatStatus] = useState({
-    isActive: false,
-    battery: 100,
-    lastUpdate: new Date().toLocaleTimeString(),
-    walkieChannel: 0,
-  });
   const [savedFlights, setSavedFlights] = useState([]);
   const [modelUrl, setModelUrl] = useState('/cansat.obj');
-  const [missionData, setMissionData] = useState({
-    flightTime: 0,
-    verticalSpeed: 0,
-    horizontalSpeed: 0,
-    distance: 0,
-    events: [],
-    checklist: {
-      transmission: false,
-      sensors: false,
-      gps: false,
-      recording: false,
-    },
-  });
+  const [missionData, setMissionData] = useState({ flightTime: 0, verticalSpeed: 0, horizontalSpeed: 0, distance: 0, events: [], checklist: { transmission: false, sensors: false, gps: false, recording: false } });
+  const [canSatStatus, setCanSatStatus] = useState({ isActive: false, battery: 100, lastUpdate: null, walkieChannel: 0 });
 
-  const { toast } = useToast();
-  
-  // Contexto de proyección pública
+  const toastHook = useToast();
+  const toast = toastHook?.toast || (() => {});
+
   const {
     publicDisplayState,
     getDisplayMode,
     getCurrentFlight,
     isLiveMode: isPublicLiveMode,
     getLiveData,
-    getLiveUpdateCount
+    getLiveUpdateCount,
+    startPublicLive,
+    setPublicFlight,
+    updateLiveData,
   } = usePublicDisplay();
 
-  // Estado para forzar re-renders
-  const [renderKey, setRenderKey] = useState(0);
+  const socketRef = useRef(null);
+  const pollRef = useRef({ intervalId: null, currentFlightId: null });
+  const [isLiveLocal, setIsLiveLocal] = useState(false);
+  const lastTelemetryTsRef = useRef(null);
 
-  // Efecto para forzar re-render cada 500ms en modo live
-  useEffect(() => {
-    let interval;
-    if (isPublicLiveMode()) {
-      interval = setInterval(() => {
-        setRenderKey(prev => prev + 1);
-      }, 500);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isPublicLiveMode]);
-
-  const addEvent = useCallback((message) => {
-    setMissionData(prev => ({
-      ...prev,
-      events: [{ time: new Date().toLocaleTimeString(), message }, ...prev.events.slice(0, 100)]
-    }));
-  }, []);
-
-  useEffect(() => {
-    // Cargar vuelos guardados
-    updateSavedFlights();
-    addEvent('Dashboard público iniciado - Solo visualización.');
-  }, [addEvent]);
-
-  // Efecto para responder a eventos de actualización forzada
-  useEffect(() => {
-    const handleForceUpdate = () => {
-      if (isPublicLiveMode()) {
-        // Forzar re-render de todos los componentes
-        setMissionData(prev => ({ ...prev }));
-        setCanSatStatus(prev => ({ ...prev }));
+  // Normalize incoming telemetry rows into array-shaped fields the UI expects
+  const transformTelemetryData = (rows) => {
+    const base = { timestamps: [], temperature: [], humidity: [], altitude: [], pressure: [], walkieChannel: [], accelerometer: [], gyroscope: [], coordinates: [] };
+    if (!Array.isArray(rows) || rows.length === 0) return base;
+    return rows.reduce((acc, r) => {
+      const tsVal = r.timestamp ?? r.ts ?? r.time ?? null;
+      let ts = Date.now();
+      if (typeof tsVal === 'number') ts = tsVal;
+      else if (typeof tsVal === 'string') {
+        const p = Date.parse(tsVal);
+        if (!Number.isNaN(p)) ts = p;
       }
-    };
-
-    window.addEventListener('publicDataUpdate', handleForceUpdate);
-    return () => window.removeEventListener('publicDataUpdate', handleForceUpdate);
-  }, [isPublicLiveMode]);
-
-  // Efecto para sincronizar con el estado de proyección pública
-  useEffect(() => {
-    const displayMode = getDisplayMode();
-    
-    if (displayMode === 'hidden') {
-      // Ocultar todo
-      setFlightData(null);
-      setCurrentFlight(null);
-      return;
-    }
-    
-    if (displayMode === 'live' && isPublicLiveMode()) {
-      // Mostrar datos en vivo desde admin
-      const liveData = getLiveData();
-      if (liveData) {
-        setFlightData(liveData);
-        setCurrentFlight(publicDisplayState.liveFlight);
-        
-        // Calcular velocidades y distancias en tiempo real
-        if (liveData.coordinates && liveData.coordinates.length > 1) {
-          const speeds = calculateSpeedsAndDistance(liveData.coordinates, liveData.timestamps);
-          setMissionData(prev => ({
-            ...prev,
-            flightTime: speeds.flightTime,
-            verticalSpeed: speeds.verticalSpeed,
-            horizontalSpeed: speeds.horizontalSpeed,
-            distance: speeds.distance,
-          }));
-        }
-        
-        // Actualizar estado del CanSat
-        setCanSatStatus(prev => ({ 
-          ...prev, 
-          isActive: true, 
-          battery: Math.max(20, 100 - (getLiveUpdateCount() * 0.1)), // Simular degradación
-          walkieChannel: liveData.walkieChannel ? liveData.walkieChannel[liveData.walkieChannel.length - 1] : 0,
-          lastUpdate: new Date().toLocaleTimeString()
-        }));
-        
-        // Solo agregar evento la primera vez o cada 50 actualizaciones para evitar spam
-        if (getLiveUpdateCount() % 50 === 1) {
-          addEvent(`📡 Datos en vivo actualizados: ${publicDisplayState.liveFlight}`);
-        }
-      }
-    } else if (displayMode === 'flights') {
-      // Mostrar vuelo seleccionado por admin
-      const projectedFlight = getCurrentFlight();
-      if (projectedFlight && projectedFlight !== currentFlight) {
-        handleFlightSelect(projectedFlight);
-        addEvent(`Vuelo proyectado desde control: ${projectedFlight}`);
-      }
-    }
-  }, [
-    publicDisplayState, 
-    getDisplayMode, 
-    getCurrentFlight, 
-    isPublicLiveMode, 
-    getLiveData, 
-    getLiveUpdateCount,
-    addEvent, 
-    currentFlight
-  ]);
-
-  const updateSavedFlights = async () => {
-    const flights = await getSavedFlights();
-    setSavedFlights(flights);
+      acc.timestamps.push(ts);
+      acc.temperature.push(r.temperature ?? r.temp ?? null);
+      acc.humidity.push(r.humidity ?? r.hum ?? null);
+      acc.altitude.push(r.altitude ?? r.alt ?? null);
+      acc.pressure.push(r.pressure ?? r.pres ?? null);
+      acc.walkieChannel.push(r.walkie_channel ?? r.walkieChannel ?? 0);
+      acc.accelerometer.push({ x: r.acc_x ?? r.accX ?? null, y: r.acc_y ?? r.accY ?? null, z: r.acc_z ?? r.accZ ?? null });
+      acc.gyroscope.push({ x: r.gyro_x ?? r.gyroX ?? null, y: r.gyro_y ?? r.gyroY ?? null, z: r.gyro_z ?? r.gyroZ ?? null });
+      acc.coordinates.push({ lat: r.lat ?? r.latitude ?? null, lng: r.lng ?? r.longitude ?? r.long ?? null });
+      return acc;
+    }, base);
   };
 
-  const handleFlightSelect = async (flightName) => {
-    const data = await loadFlightData(flightName);
-    if (data) {
-      setCurrentFlight(flightName);
-      setFlightData(data);
-      setCanSatStatus({ 
-        isActive: true, 
-        battery: 100, 
-        lastUpdate: new Date().toLocaleTimeString(), 
-        walkieChannel: data.walkieChannel[data.walkieChannel.length - 1] 
+  const mergeTelemetryPoint = useCallback((point) => {
+    if (!point) return;
+    try {
+      const t = transformTelemetryData([point]);
+      setFlightData(prev => {
+        const cap = 2000;
+        if (!prev) return t;
+        const join = (k) => (Array.isArray(prev[k]) ? prev[k].concat(t[k]) : t[k]).slice(-cap);
+        const updated = {
+          timestamps: join('timestamps'),
+          temperature: join('temperature'),
+          humidity: join('humidity'),
+          altitude: join('altitude'),
+          pressure: join('pressure'),
+          walkieChannel: join('walkieChannel'),
+          accelerometer: join('accelerometer'),
+          gyroscope: join('gyroscope'),
+          coordinates: join('coordinates'),
+        };
+        // update mission metrics if possible
+        try {
+          if (Array.isArray(updated.coordinates) && updated.coordinates.length > 1 && Array.isArray(updated.timestamps) && updated.timestamps.length > 1) {
+            const speeds = calculateSpeedsAndDistance({ coordinates: updated.coordinates, altitude: updated.altitude, timestamps: updated.timestamps });
+            setMissionData(md => ({ ...md, verticalSpeed: speeds.verticalSpeed, horizontalSpeed: speeds.horizontalSpeed, distance: speeds.distance }));
+          }
+        } catch (e) {
+          // non-fatal
+        }
+        return updated;
       });
-      
-      // Calcular datos de misión
-      const { verticalSpeed, horizontalSpeed, distance } = calculateSpeedsAndDistance(data);
-      setMissionData(prev => ({
-        ...prev,
-        verticalSpeed,
-        horizontalSpeed,
-        distance,
-        flightTime: data.timestamps.length * 2, // Aproximación basada en frecuencia
-        checklist: { ...prev.checklist, sensors: true, gps: true }
-      }));
-      
-      addEvent(`Vuelo cargado: ${flightName} (Solo lectura)`);
+      // Basic status update
+      setCanSatStatus(prev => ({ ...prev, isActive: true, lastUpdate: new Date().toLocaleTimeString() }));
+      // Update mission timing, checklist and more detailed status using point timestamp
+      try {
+        const ts = (t.timestamps && t.timestamps[0]) ? Number(t.timestamps[0]) : Date.now();
+        setMissionData(md => {
+          const last = lastTelemetryTsRef.current;
+          let extra = 0;
+          if (last && ts > last) extra = Math.max(0, (ts - last) / 1000);
+          lastTelemetryTsRef.current = ts;
+          return {
+            ...md,
+            flightTime: (md.flightTime || 0) + extra,
+            checklist: { ...(md.checklist || {}), transmission: true }
+          };
+        });
+        setCanSatStatus(prev => ({ ...prev, walkieChannel: (point.walkie_channel ?? point.walkieChannel ?? prev.walkieChannel), battery: Math.max(0, (prev.battery || 100) - 0.02) }));
+      } catch (e) {
+        // non-fatal
+      }
+      if (typeof updateLiveData === 'function') updateLiveData(point);
+    } catch (e) {
+      console.warn('mergeTelemetryPoint error', e);
     }
+  }, [updateLiveData]);
+
+  const fetchLatestAndMerge = useCallback(async (flightId) => {
+    if (!flightId) return;
+    try {
+      const resp = await fetch(`/api/telemetry/latest?flightId=${flightId}&limit=1`);
+      if (!resp.ok) return;
+      const rows = await resp.json();
+      if (!Array.isArray(rows) || rows.length === 0) return;
+      mergeTelemetryPoint(rows[0]);
+    } catch (e) {
+      // silent
+    }
+  }, [mergeTelemetryPoint]);
+
+  // Socket + polling lifecycle
+  useEffect(() => {
+  // Connect to socket using a reliable backend origin in dev.
+  // In some dev setups the page origin isn't the Vite dev server (e.g. served on :3000),
+  // which makes websocket proxying unsuccessful. Prefer explicit backend URL in dev.
+  const isLocalhost = (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'));
+  const base = (isLocalhost && process.env.NODE_ENV !== 'production') ? 'http://localhost:5000' : ((typeof window !== 'undefined' && window.location?.origin) ? window.location.origin : 'http://localhost:5000');
+  console.info('[PublicDashboard] connecting socket to', base);
+  const socket = io(base, { path: '/socket.io', transports: ['websocket', 'polling'] });
+    socketRef.current = socket;
+
+  const telemetryHandler = (d) => { try { console.debug('[PublicDashboard] telemetry-update received', d); mergeTelemetryPoint(d); } catch (e) { console.warn('[PublicDashboard] telemetry handler error', e); } };
+
+    const handleStart = async (payload) => {
+      if (!payload) return;
+      if (payload.mode === 'live') {
+        if (typeof startPublicLive === 'function') startPublicLive(payload.flightName || payload.flight || null, payload.data || null);
+        let flightId = payload.flightId || null;
+        if (!flightId) {
+          try { const r = await fetch('/api/flights'); if (r.ok) { const fl = await r.json(); if (Array.isArray(fl) && fl.length) flightId = fl[0].id || null; } } catch (e) {}
+        }
+          if (!flightId) {
+            console.info('[PublicDashboard] handleStart: no flightId in payload, will not join room');
+            return;
+          }
+
+          // Ensure socket is connected and join the room with ack/retry handling
+          const ensureJoin = () => new Promise((resolve) => {
+            const tryJoin = () => {
+              try {
+                console.info('[PublicDashboard] emitting join-flight-room for', flightId, ' socket.connected=', socket.connected);
+                socket.emit('join-flight-room', flightId);
+              } catch (e) { console.warn('[PublicDashboard] emit join-flight-room failed', e); }
+            };
+
+            // Listen for server ack once
+            const ackHandler = (ack) => {
+              try { console.info('[PublicDashboard] joined-flight-room ack', ack); } catch (e) {}
+              cleanup();
+              resolve(true);
+            };
+
+            const cleanup = () => {
+              try { socket.off('joined-flight-room', ackHandler); } catch (e) {}
+              try { clearTimeout(retryTimer); } catch (e) {}
+            };
+
+            // If socket is not connected yet, wait for connect
+            if (!socket.connected) {
+              const onConnect = () => { tryJoin(); socket.off('connect', onConnect); };
+              try { socket.on('connect', onConnect); } catch (e) { tryJoin(); }
+            } else {
+              tryJoin();
+            }
+
+            // attach ack handler
+            try { socket.on('joined-flight-room', ackHandler); } catch (e) {}
+
+            // Retry join after 1.5s if no ack
+            const retryTimer = setTimeout(() => {
+              try {
+                console.warn('[PublicDashboard] No joined-flight-room ack received; retrying join for', flightId);
+                tryJoin();
+              } catch (e) {}
+            }, 1500);
+          });
+
+          await ensureJoin();
+
+          // Mark local live mode active to prefer socket streaming
+          setIsLiveLocal(true);
+
+          // Listen for telemetry updates (room-scoped emits will reach this socket once joined)
+          try { socket.on('telemetry-update', telemetryHandler); } catch (e) { console.warn('Failed to attach telemetry handler', e); }
+
+          // Stop any existing polling and also fetch latest DB row once to seed the UI
+          if (pollRef.current.intervalId) clearInterval(pollRef.current.intervalId);
+          pollRef.current.currentFlightId = flightId;
+          fetchLatestAndMerge(flightId);
+          pollRef.current.intervalId = setInterval(() => fetchLatestAndMerge(flightId), 1000);
+      } else if (payload.mode === 'flight') {
+        const id = payload.flightId || null; const name = payload.flightName || payload.flight || null;
+        if (typeof setPublicFlight === 'function') setPublicFlight({ id, name });
+        if (id) {
+          try { socket.emit('join-flight-room', id); } catch (e) {}
+          socket.on('telemetry-update', telemetryHandler);
+          try { const d = await loadFlightData(name); if (d) setFlightData(d); } catch (e) {}
+        }
+      }
+    };
+
+    const handleStop = () => {
+      if (pollRef.current.intervalId) { clearInterval(pollRef.current.intervalId); pollRef.current.intervalId = null; pollRef.current.currentFlightId = null; }
+      try { socket.off('telemetry-update', telemetryHandler); } catch (e) {}
+      if (typeof startPublicLive === 'function') startPublicLive(null, null);
+    };
+
+    socket.on('public-projection-start', handleStart);
+    socket.on('public-projection-stop', handleStop);
+  socket.on('connect', () => console.info('[PublicDashboard] socket connected', socket.id));
+  socket.on('connect_error', (err) => console.error('[PublicDashboard] socket connect_error', err));
+  socket.on('public-projection-start', (p) => console.info('[PublicDashboard] received public-projection-start event', p));
+
+    return () => {
+      try {
+        socket.off('public-projection-start', handleStart);
+        socket.off('public-projection-stop', handleStop);
+        socket.off('telemetry-update', telemetryHandler);
+        socket.disconnect();
+      } catch (e) {}
+      if (pollRef.current.intervalId) { clearInterval(pollRef.current.intervalId); pollRef.current.intervalId = null; }
+    };
+  }, [fetchLatestAndMerge, mergeTelemetryPoint, setPublicFlight, startPublicLive]);
+
+  // If admin already set a projected flight id, join and poll
+  useEffect(() => {
+    const fid = publicDisplayState?.currentFlightId || null;
+    const socket = socketRef.current;
+    if (!fid || !socket) return;
+    try {
+      socket.emit('join-flight-room', fid);
+      socket.on('telemetry-update', (d) => mergeTelemetryPoint(d));
+      if (pollRef.current.intervalId) clearInterval(pollRef.current.intervalId);
+      pollRef.current.currentFlightId = fid;
+      fetchLatestAndMerge(fid);
+      pollRef.current.intervalId = setInterval(() => fetchLatestAndMerge(fid), 1000);
+    } catch (e) {}
+  }, [publicDisplayState?.currentFlightId, fetchLatestAndMerge, mergeTelemetryPoint]);
+
+  // load saved flights on mount
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try { const flights = await getSavedFlights(); if (mounted) setSavedFlights(flights || []); } catch (e) {}
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  const addEvent = useCallback((message) => { setMissionData(prev => ({ ...prev, events: [{ time: new Date().toLocaleTimeString(), message }, ...(prev.events || []).slice(0, 99)] })); }, []);
+
+  const handleFlightSelect = async (flightArg) => {
+    const name = typeof flightArg === 'string' ? flightArg : (flightArg?.name || null);
+    const id = typeof flightArg === 'object' ? flightArg.id : null;
+    try {
+      // Cleanup any previous polling/socket handlers
+      try {
+        if (pollRef.current.intervalId) { clearInterval(pollRef.current.intervalId); pollRef.current.intervalId = null; }
+        // remove previous telemetry handler if present
+        const prevHandler = pollRef.current.telemetryHandler;
+        const prevFlight = pollRef.current.currentFlightId;
+        if (socketRef.current && prevHandler && typeof socketRef.current.off === 'function') {
+          try { socketRef.current.off('telemetry-update', prevHandler); } catch(e) {}
+          try { if (prevFlight) socketRef.current.emit('leave-flight-room', prevFlight); } catch(e) {}
+        }
+      } catch (cleanupErr) {
+        console.warn('Error cleaning previous public flight handlers:', cleanupErr);
+      }
+
+      // Load historical flight data from Node API (SQLite)
+      const data = await loadFlightData(flightArg);
+      if (data) {
+        setCurrentFlight(name);
+        setFlightData(data);
+        try { const s = calculateSpeedsAndDistance(data); setMissionData(md => ({ ...md, verticalSpeed: s.verticalSpeed, horizontalSpeed: s.horizontalSpeed, distance: s.distance })); } catch (e) {}
+        setCanSatStatus(prev => ({ ...prev, isActive: true, lastUpdate: new Date().toLocaleTimeString(), walkieChannel: (data.walkieChannel?.slice?.(-1)[0] ?? prev.walkieChannel) }));
+        addEvent(`Vuelo cargado: ${name}`);
+        try { if (typeof setPublicFlight === 'function') setPublicFlight({ id, name }); } catch (e) {}
+
+        // Join socket room for live telemetry (if socket available and flight id present)
+        try {
+          const socket = socketRef.current;
+          const telemetryHandlerLocal = (d) => { try { console.debug('[PublicDashboard] telemetry-update (selected flight) received', d); mergeTelemetryPoint(d); } catch (e) { console.warn('telemetry handler local error', e); } };
+          // store handler so we can remove it when switching flights
+          pollRef.current.telemetryHandler = telemetryHandlerLocal;
+          if (socket && id) {
+            try { socket.emit('join-flight-room', id); } catch (e) { console.warn('join-flight-room emit failed', e); }
+            try { socket.on('telemetry-update', telemetryHandlerLocal); } catch (e) { console.warn('socket.on telemetry-update failed', e); }
+          }
+
+          // Start polling fallback every 1s to fetch latest DB telemetry and merge
+          pollRef.current.currentFlightId = id;
+          // fetch once to seed
+          if (id) fetchLatestAndMerge(id);
+          // Start interval
+          pollRef.current.intervalId = setInterval(() => {
+            if (pollRef.current.currentFlightId) fetchLatestAndMerge(pollRef.current.currentFlightId);
+          }, 1000);
+        } catch (e) {
+          console.warn('Failed to attach live handlers for selected flight:', e);
+        }
+      }
+    } catch (e) { console.warn('handleFlightSelect error', e); }
   };
 
   return (
     <>
       <Helmet>
         <title>Astra CanSat Dashboard - Vista Pública</title>
-        <meta name="description" content="Dashboard público de telemetría CanSat del proyecto Astra - Solo visualización" />
       </Helmet>
-      
       <div className="min-h-screen bg-gray-900 retro-grid">
         <Header />
-        
         <main className="container mx-auto px-4 py-8 space-y-8">
-          {/* Mostrar selector solo si no está en modo oculto */}
           {getDisplayMode() !== 'hidden' && (
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
-              <FlightSelectorPublic 
-                onFlightSelect={handleFlightSelect}
-                currentFlight={currentFlight}
-                savedFlights={savedFlights}
-              />
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+              <FlightSelectorPublic onFlightSelect={handleFlightSelect} currentFlight={currentFlight} savedFlights={savedFlights} />
             </motion.div>
           )}
 
-          {/* Mostrar dashboard solo si hay datos y no está oculto */}
-          {flightData && getDisplayMode() !== 'hidden' && (
+          {flightData && getDisplayMode() !== 'hidden' ? (
             <>
-              {/* Indicador de modo de proyección */}
-              {(isPublicLiveMode() || getCurrentFlight()) && (
-                <motion.div 
-                  initial={{ opacity: 0, y: -10 }} 
-                  animate={{ opacity: 1, y: 0 }} 
-                  className="text-center"
-                >
-                  <div className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${
-                    isPublicLiveMode() 
-                      ? 'bg-green-600/20 text-green-400 border border-green-500/30' 
-                      : 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
-                  }`}>
-                    <div className={`w-2 h-2 rounded-full mr-2 animate-pulse ${
-                      isPublicLiveMode() ? 'bg-green-400' : 'bg-blue-400'
-                    }`}></div>
-                    {isPublicLiveMode() 
-                      ? (
-                          <span className="flex items-center">
-                            🔴 TRANSMISIÓN EN VIVO: {publicDisplayState.liveFlight}
-                            <span className="ml-2 text-xs opacity-75">
-                              (#{getLiveUpdateCount()})
-                            </span>
-                          </span>
-                        )
-                      : `📡 PROYECTANDO: ${currentFlight}`
-                    }
-                  </div>
-                  
-                  {/* Indicador de última actualización para modo live */}
-                  {isPublicLiveMode() && publicDisplayState.lastUpdate && (
-                    <div className="mt-2 text-xs text-gray-400">
-                      Última actualización: {new Date(publicDisplayState.lastUpdate).toLocaleTimeString()}
-                    </div>
-                  )}
-                </motion.div>
-              )}
-
               <div className="grid lg:grid-cols-3 gap-8">
-                <motion.div className="lg:col-span-2" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.2 }}>
-                  <StatusPanel 
-                    status={canSatStatus} 
-                    isLiveMode={isPublicLiveMode()} 
-                    key={`status-${isPublicLiveMode() ? `${getLiveUpdateCount()}-${renderKey}` : currentFlight}`}
-                  />
-                </motion.div>
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.3 }}>
-                  <MissionControl 
-                    missionData={missionData} 
-                    key={`mission-${isPublicLiveMode() ? `${getLiveUpdateCount()}-${renderKey}` : currentFlight}`}
-                  />
-                </motion.div>
+                <div className="lg:col-span-2"><StatusPanel status={canSatStatus} isLiveMode={isPublicLiveMode()} /></div>
+                <div><MissionControl missionData={missionData} /></div>
               </div>
-
-              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.4 }}>
-                <ChartsGrid 
-                  data={flightData} 
-                  key={`charts-${isPublicLiveMode() ? `${getLiveUpdateCount()}-${renderKey}` : currentFlight}`}
-                />
-              </motion.div>
-
+              <ChartsGrid data={flightData} />
               <div className="grid lg:grid-cols-2 gap-8">
-                <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.6, delay: 0.6 }}>
-                  <MapSection 
-                    coordinates={flightData.coordinates} 
-                    key={`map-${isPublicLiveMode() ? `${getLiveUpdateCount()}-${renderKey}` : currentFlight}`}
-                  />
-                </motion.div>
-                <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.6, delay: 0.8 }}>
-                  <GyroscopeViewer 
-                    gyroData={flightData.gyroscope[flightData.gyroscope.length - 1] || { x: 0, y: 0, z: 0 }}
-                    modelUrl={modelUrl}
-                    onModelUpload={setModelUrl}
-                    currentFlight={currentFlight}
-                    onRecordingStatusChange={() => {}} // Sin funcionalidad en modo público
-                    isReadOnly={true}
-                    key={`gyro-${isPublicLiveMode() ? `${getLiveUpdateCount()}-${renderKey}` : currentFlight}`}
-                  />
-                </motion.div>
+                <MapSection coordinates={flightData.coordinates} />
+                <GyroscopeViewer gyroData={(flightData.gyroscope?.slice?.(-1)[0]) || { x: 0, y: 0, z: 0 }} modelUrl={modelUrl} onModelUpload={setModelUrl} currentFlight={currentFlight} isReadOnly />
               </div>
-              
-              {/* Indicador de modo público */}
-              <motion.div 
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="mt-8 p-4 bg-amber-600/20 border border-amber-500/30 rounded-lg text-center"
-              >
-                <p className="text-amber-300 text-sm">
-                  👁️ <strong>Modo de Visualización Pública</strong> - 
-                  Para gestión completa de vuelos y telemetría en vivo, accede como administrador
-                </p>
-              </motion.div>
             </>
-          )}
-
-          {/* Mensaje cuando está en modo oculto */}
-          {getDisplayMode() === 'hidden' && (
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }} 
-              animate={{ opacity: 1, y: 0 }}
-              className="text-center py-16"
-            >
-              <div className="glass-card rounded-xl p-8 max-w-md mx-auto">
-                <div className="text-6xl mb-4">🙈</div>
-                <h2 className="text-2xl font-bold text-white mb-4">Vista Oculta</h2>
-                <p className="text-gray-300 mb-6">
-                  La visualización pública está desactivada desde el panel de administración.
-                </p>
-                <p className="text-xs text-gray-400">
-                  Esperando proyección desde control...
-                </p>
-              </div>
-            </motion.div>
-          )}
-
-          {/* Mensaje cuando no hay datos pero no está oculto */}
-          {!flightData && getDisplayMode() !== 'hidden' && (
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }} 
-              animate={{ opacity: 1, y: 0 }}
-              className="text-center py-16"
-            >
-              <div className="glass-card rounded-xl p-8 max-w-md mx-auto">
-                <div className="text-6xl mb-4">🛰️</div>
-                <h2 className="text-2xl font-bold text-white mb-4">Esperando Datos</h2>
-                <p className="text-gray-300 mb-6">
-                  Esperando que el administrador proyecte un vuelo o inicie transmisión en vivo.
-                </p>
-                <p className="text-xs text-gray-400">
-                  Sistema listo para recepción...
-                </p>
-              </div>
-            </motion.div>
+          ) : getDisplayMode() !== 'hidden' ? (
+            <div className="text-center py-16"><div className="glass-card rounded-xl p-8 max-w-md mx-auto"><div className="text-6xl mb-4">🛰️</div><h2 className="text-2xl font-bold text-white mb-4">Esperando Datos</h2><p className="text-gray-300">Esperando que el administrador proyecte un vuelo o inicie transmisión en vivo.</p></div></div>
+          ) : (
+            <div className="text-center py-16">Vista pública oculta</div>
           )}
         </main>
-
         <Toaster />
       </div>
     </>
   );
 }
 
-export default PublicDashboard;
+  // Saved: refresh marker to help editor/TS server pick up latest content

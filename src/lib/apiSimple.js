@@ -52,15 +52,15 @@ export const healthAPI = {
   check: () => apiRequest('/api/health'),
 };
 
-// Serial COM11 API functions
+// Serial COM5 API functions
 export const serialAPI = {
-  // Iniciar lectura COM11
+  // Iniciar lectura COM5
   startReading: (flightName) => apiRequest('/api/serial/start', {
     method: 'POST',
     body: JSON.stringify({ flight_name: flightName }),
   }),
   
-  // Detener lectura COM11
+  // Detener lectura COM5
   stopReading: () => apiRequest('/api/serial/stop', {
     method: 'POST',
   }),
@@ -68,8 +68,8 @@ export const serialAPI = {
   // Obtener estado de lectura
   getStatus: () => apiRequest('/api/serial/status'),
   
-  // Probar conexión COM11
-  testCOM11: () => apiRequest('/api/test/com11'),
+  // Probar conexión COM5 (usa el endpoint de prueba genérico)
+  testCOM5: () => apiRequest('/api/test/serial'),
 };
 
 // CSV Files API functions
@@ -108,7 +108,7 @@ export const flightAPI = {
     return { flight: flight || null };
   },
   
-  // Crear vuelo ahora inicia lectura COM11
+  // Crear vuelo ahora inicia lectura COM5
   createFlight: async (flightData) => {
     const result = await serialAPI.startReading(flightData.name);
     return {

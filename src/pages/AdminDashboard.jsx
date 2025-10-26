@@ -18,6 +18,7 @@ import MissionControl from '@/components/MissionControl';
 import TelemetryDashboardExpanded from '@/components/TelemetryDashboardExpanded';
 import { parseDataFromFile } from '@/utils/mockData';
 import { calculateSpeedsAndDistance } from '@/utils/calculations';
+import { getSavedFlights } from '@/lib/dbUnified';
 
 const socket = io('http://localhost:5000');
 
@@ -65,6 +66,7 @@ function AdminDashboard() {
   const [currentFlightId, setCurrentFlightId] = useState(null);
   const [flightData, setFlightData] = useState(null);
   const [isLiveMode, setIsLiveMode] = useState(false);
+  const [savedFlights, setSavedFlights] = useState([]);
   
   const [canSatStatus, setCanSatStatus] = useState({
     isActive: false,
@@ -151,12 +153,36 @@ function AdminDashboard() {
     }
   }, [isLiveMode, addEvent, canSatStatus.battery]);
 
+  // Cargar vuelos guardados para el panel de proyección pública
+  useEffect(() => {
+    const loadSaved = async () => {
+      try {
+        const flights = await getSavedFlights();
+        setSavedFlights(flights || []); // now array of {id,name}
+      } catch (err) {
+        console.warn('Error cargando saved flights:', err);
+      }
+    };
+    loadSaved();
+  }, []);
 
-  const handleFlightSelect = async (flightName, flightId) => {
+
+  const handleFlightSelect = async (flightArg, flightIdArg) => {
+    // flightArg can be an object { id, name } or a string flightName. flightIdArg is optional legacy param
+    const isObj = typeof flightArg === 'object' && flightArg !== null;
+    const flightName = isObj ? (flightArg.name || `Flight ${flightArg.id}`) : flightArg;
+    const flightId = isObj ? flightArg.id : flightIdArg;
+
     addEvent(`Cargando datos para el vuelo: ${flightName}`);
     setIsLiveMode(false);
     if (currentFlightId) {
-        socket.emit('leave-flight-room', currentFlightId); // Salir de la sala anterior si la hubiera
+      socket.emit('leave-flight-room', currentFlightId); // Salir de la sala anterior si la hubiera
+    }
+
+    if (!flightId) {
+      console.warn('handleFlightSelect: no se proporcionó flightId. Abortando carga.');
+      toast({ title: 'Vuelo no especificado', description: 'No se pudo determinar el ID del vuelo para cargar.' });
+      return;
     }
 
     try {
@@ -164,11 +190,11 @@ function AdminDashboard() {
       if (response.ok) {
         const telemetryRecords = await response.json();
         const formattedData = transformTelemetryData(telemetryRecords);
-        
+
         setFlightData(formattedData);
         setCurrentFlight(flightName);
         setCurrentFlightId(flightId);
-        
+
         setCanSatStatus({ isActive: false, battery: 100, lastUpdate: new Date().toLocaleTimeString(), walkieChannel: formattedData.walkieChannel.slice(-1)[0] || 0 });
         addEvent(`✅ Vuelo histórico "${flightName}" cargado con ${telemetryRecords.length} registros.`);
         toast({
@@ -236,10 +262,34 @@ function AdminDashboard() {
   };
 
   const handleExport = async () => {
-    if (currentFlight && flightData) {
-      // Lógica de exportación (puede ser un endpoint en el backend)
-      toast({ title: "Exportación", description: `Generando paquete para ${currentFlight}...` });
-      addEvent(`Paquete de vuelo exportado: ${currentFlight}`);
+    if (!currentFlightId) {
+      toast({ title: 'Exportación', description: 'Selecciona primero un vuelo para exportar.', variant: 'destructive' });
+      return;
+    }
+
+    try {
+      toast({ title: 'Exportación', description: `Generando paquete para ${currentFlight || currentFlightId}...` });
+      // Call backend export endpoint which returns a ZIP of CSV files for the flight
+      const resp = await fetch(`/api/export/all-csv?flightId=${encodeURIComponent(currentFlightId)}`);
+      if (!resp.ok) throw new Error(`Export failed: ${resp.statusText}`);
+
+      const blob = await resp.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const filename = `flight_${currentFlightId}_export_${new Date().toISOString().replace(/[:.]/g,'-')}.zip`;
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      addEvent(`Paquete de vuelo exportado: ${currentFlight || currentFlightId}`);
+      toast({ title: 'Exportación', description: `Paquete generado: ${filename}` });
+    } catch (error) {
+      console.error('Export error', error);
+      toast({ title: 'Error de exportación', description: error.message || 'No fue posible generar el paquete.', variant: 'destructive' });
+      addEvent(`❌ Error exportando vuelo: ${error.message || error}`);
     }
   };
 
@@ -274,7 +324,28 @@ function AdminDashboard() {
             <PublicDisplayController
               isLiveMode={isLiveMode}
               liveFlight={currentFlight}
+              currentFlightId={currentFlightId}
               currentData={flightData}
+              savedFlights={savedFlights}
+              onStartPublicProjection={(payload) => {
+                // payload: { mode: 'live'|'flight', flightId?, flightName?, data? }
+                try {
+                  console.info('[AdminDashboard] Emitting public-projection-start', payload);
+                  socket.emit('public-projection-start', payload);
+                  addEvent('🔊 Public projection started (announced to public clients)');
+                } catch (e) {
+                  console.warn('Failed to emit public-projection-start:', e);
+                }
+              }}
+              onStopPublicProjection={() => {
+                try {
+                  console.info('[AdminDashboard] Emitting public-projection-stop');
+                  socket.emit('public-projection-stop', {});
+                  addEvent('🔈 Public projection stopped (announced to public clients)');
+                } catch (e) {
+                  console.warn('Failed to emit public-projection-stop:', e);
+                }
+              }}
             />
           </motion.div>
 
@@ -309,7 +380,7 @@ function AdminDashboard() {
                 </motion.div>
               </div>
 
-              {/* Dashboard de telemetría COM11 */}
+              {/* Dashboard de telemetría COM5 */}
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 1.0 }}>
                 <TelemetryDashboardExpanded />
               </motion.div>

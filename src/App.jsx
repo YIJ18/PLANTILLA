@@ -137,14 +137,16 @@ function App() {
     };
   }, [isLiveMode, flightData, currentFlight, canSatStatus.battery, checkAlerts]);
 
-  const handleFlightSelect = async (flightName) => {
-    const data = await loadFlightData(flightName);
+  const handleFlightSelect = async (flightArg) => {
+    // flightArg can be a string (name) or object { id, name }
+    const data = await loadFlightData(flightArg);
     if (data) {
-      setCurrentFlight(flightName);
+      const display = typeof flightArg === 'string' ? flightArg : (flightArg.name || flightArg.flight_number || `Flight ${flightArg.id}`);
+      setCurrentFlight(typeof flightArg === 'object' ? flightArg : display);
       setFlightData(data);
       setIsLiveMode(false);
       setCanSatStatus({ isActive: true, battery: 100, lastUpdate: new Date().toLocaleTimeString(), walkieChannel: data.walkieChannel[data.walkieChannel.length - 1] });
-      addEvent(`Vuelo cargado: ${flightName}`);
+      addEvent(`Vuelo cargado: ${display}`);
     }
   };
 
@@ -187,8 +189,10 @@ function App() {
 
   const handleExport = async () => {
     if (currentFlight && flightData) {
-      await exportFlightPackage(currentFlight, flightData);
-      addEvent(`Paquete de vuelo exportado: ${currentFlight}`);
+      // currentFlight may be a name string or an object from backend
+      const identifier = typeof currentFlight === 'string' ? currentFlight : (currentFlight.name || currentFlight.flight_number || currentFlight.id);
+      await exportFlightPackage(identifier, flightData);
+      addEvent(`Paquete de vuelo exportado: ${identifier}`);
     }
   };
 

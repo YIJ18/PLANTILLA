@@ -1,0 +1,7 @@
+name,seq
+knex_migrations_lock,1
+knex_migrations,4
+users,1
+flights,49
+flight_events,4471
+telemetry_data,1532

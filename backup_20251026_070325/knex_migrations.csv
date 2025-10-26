@@ -1,0 +1,4 @@
+id,name,batch,migration_time
+2,20251016145822_create_tables.js,1,1761030451065
+3,20251016215340_create_users_table.js,1,1761030451070
+4,20251021170609_create_flight_events_table.js,2,1761066550126

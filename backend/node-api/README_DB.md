@@ -6,7 +6,7 @@ Este backend ahora persiste metadatos de vuelos y telemetría usando lowdb (JSON
 - Directorio CSV: backend/csv_flights
 
 Flujo:
-- Al iniciar “Iniciar Vuelo COM11” (POST /api/serial/execute-direct) se crea un registro de vuelo y se empieza a guardar cada paquete de datos en la BD y en CSV.
+-- Al iniciar “Iniciar Vuelo COM5” (POST /api/serial/execute-direct) se crea un registro de vuelo y se empieza a guardar cada paquete de datos en la BD y en CSV.
 - Al detener el vuelo (POST /api/serial/stop) o si se cierra el puerto, el vuelo se marca como “completed”.
 
 Endpoints nuevos:

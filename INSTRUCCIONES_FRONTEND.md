@@ -15,8 +15,8 @@ npm run dev
 3) Abre http://localhost:3000 y ve al Admin Dashboard.
 
 ## Botones en la UI
-- "Iniciar Vuelo COM11": inicia la lectura por el endpoint Node `/api/serial/start` (requiere nombre de vuelo)
-- "⚡ Ejecutar COM11 Directo": usa `/api/serial/execute-direct` para arrancar de inmediato
+-- "Iniciar Vuelo COM5": inicia la lectura por el endpoint Node `/api/serial/start` (requiere nombre de vuelo)
+-- "⚡ Ejecutar COM5 Directo": usa `/api/serial/execute-direct` para arrancar de inmediato
 
 Ambos guardan CSV normalizados en `backend/csv_flights/` y actualizan la telemetría en vivo.
 
@@ -27,5 +27,5 @@ Ambos guardan CSV normalizados en `backend/csv_flights/` y actualizan la telemet
 
 ## Solución de problemas
 - Ver estado: GET `http://127.0.0.1:5000/api/serial/status`
-- Probar puertos: GET `http://127.0.0.1:5000/api/test/com11`
-- Puerto en uso: cierre apps que usen COM11 y vuelva a iniciar
+-- Probar puertos: GET `http://127.0.0.1:5000/api/test/serial`
+-- Puerto en uso: cierre apps que usen COM5 y vuelva a iniciar

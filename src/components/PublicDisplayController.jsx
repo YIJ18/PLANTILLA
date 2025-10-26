@@ -17,7 +17,11 @@ const PublicDisplayController = ({
   savedFlights, 
   isLiveMode, 
   liveFlight, 
-  currentData 
+  currentData,
+  onStartPublicProjection,
+  onStopPublicProjection,
+  // AdminDashboard passes currentFlightId so we can include it in the projection payload
+  currentFlightId
 }) => {
   const {
     publicDisplayState,
@@ -29,7 +33,7 @@ const PublicDisplayController = ({
     getDisplayMode
   } = usePublicDisplay();
 
-  const [selectedFlight, setSelectedFlight] = useState('');
+  const [selectedFlight, setSelectedFlight] = useState(null);
 
   // Actualizar datos en vivo si están en modo live - SIN BUCLE INFINITO
   React.useEffect(() => {
@@ -72,17 +76,41 @@ const PublicDisplayController = ({
   const handleProjectFlight = () => {
     if (selectedFlight) {
       setPublicFlight(selectedFlight);
+      // Force write to localStorage so other tabs see the change immediately (include id if available)
+      try {
+        const prev = JSON.parse(localStorage.getItem('publicDisplayState') || '{}');
+        const next = { ...prev, currentFlight: selectedFlight.name || null, currentFlightId: selectedFlight.id || null, displayMode: 'flights', lastUpdate: new Date().toISOString() };
+        localStorage.setItem('publicDisplayState', JSON.stringify(next));
+      } catch (e) {
+        // ignore
+      }
     }
   };
 
   const handleProjectLive = () => {
     if (isLiveMode && liveFlight) {
       startPublicLive(liveFlight, currentData);
+      // Notify public clients via admin-provided callback to emit socket event
+      try {
+        if (typeof onStartPublicProjection === 'function') {
+          // Include flight id if available so public clients can join the exact room
+          const payload = { mode: 'live', flightName: liveFlight, data: currentData };
+          if (typeof currentFlightId !== 'undefined' && currentFlightId !== null) payload.flightId = currentFlightId;
+          onStartPublicProjection(payload);
+        }
+      } catch (e) {
+        console.warn('onStartPublicProjection callback error:', e);
+      }
     }
   };
 
   const handleStopProjection = () => {
     stopPublicLive();
+    try {
+      if (typeof onStopPublicProjection === 'function') onStopPublicProjection();
+    } catch (e) {
+      console.warn('onStopPublicProjection callback error:', e);
+    }
   };
 
   const handleHideDisplay = () => {
@@ -120,15 +148,19 @@ const PublicDisplayController = ({
             Proyectar Vuelo Guardado
           </h3>
           <div className="space-y-3">
-            <select 
-              value={selectedFlight}
-              onChange={(e) => setSelectedFlight(e.target.value)}
+            <select
+              value={selectedFlight ? (selectedFlight.id || selectedFlight.name) : ''}
+              onChange={(e) => {
+                const val = e.target.value;
+                const found = (savedFlights || []).find(f => String(f.id) === val || f.name === val);
+                setSelectedFlight(found || null);
+              }}
               className="w-full p-3 bg-gray-800 border border-gray-600 rounded-lg text-white focus:border-blue-500 focus:outline-none"
             >
               <option value="">Seleccionar vuelo...</option>
               {(savedFlights || []).map((flight) => (
-                <option key={flight} value={flight}>
-                  {flight}
+                <option key={flight.id || flight.name} value={flight.id || flight.name}>
+                  {flight.name}
                 </option>
               ))}
             </select>

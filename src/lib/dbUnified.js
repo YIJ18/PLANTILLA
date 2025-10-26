@@ -136,56 +136,63 @@ export async function saveFlightData(flightName, data) {
 }
 
 // Load flight data (Django first, IndexedDB fallback)
-export async function loadFlightData(flightName) {
-  // Prefer local IndexedDB first (our Node API doesn’t serve historical telemetry by ID)
-  try {
-    const db = await openDB();
-    const local = await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readonly');
-      const store = tx.objectStore(STORE_NAME);
-      const req = store.get(flightName);
-      req.onsuccess = () => resolve(req.result ? req.result.data : null);
-      req.onerror = () => reject('Error loading flight data from IndexedDB');
-    });
-    if (local) {
-      console.log(`Flight ${flightName} loaded from IndexedDB`);
-      return local;
-    }
-  } catch (e) {
-    console.error('Error loading from IndexedDB:', e);
-  }
+export async function loadFlightData(flightArg) {
+  // flightArg may be a string (flightName) or an object { id, name }
+  const flightName = typeof flightArg === 'string' ? flightArg : (flightArg?.name || null);
+  const flightId = typeof flightArg === 'object' ? flightArg.id : null;
 
-  // Optionally, try backend flights if available and telemetry endpoint is implemented later
+  // Prefer server-side SQLite-backed Node API (uses backend/node-api/db/development.sqlite3)
+  // 1) If we have an id (preferred), request telemetry by flight id from Node API
   try {
-    if (isAuthenticated()) {
-      const flightsResponse = await flightAPI.getFlights();
-      let flightsArr = [];
-      if (Array.isArray(flightsResponse)) flightsArr = flightsResponse;
-      else if (Array.isArray(flightsResponse?.results)) flightsArr = flightsResponse.results;
-      else if (Array.isArray(flightsResponse?.flights)) flightsArr = flightsResponse.flights;
-      else if (flightsResponse && typeof flightsResponse === 'object') flightsArr = [flightsResponse];
+    if (flightId || (isAuthenticated() && flightName)) {
+      // Determine id: if flightId present use it, otherwise try to find flight by name
+      let targetId = flightId;
+      if (!targetId && flightName && isAuthenticated()) {
+        // Query backend flights list to find id by name
+        const flightsResponse = await flightAPI.getFlights();
+        let flightsArr = [];
+        if (Array.isArray(flightsResponse)) flightsArr = flightsResponse;
+        else if (Array.isArray(flightsResponse?.results)) flightsArr = flightsResponse.results;
+        else if (Array.isArray(flightsResponse?.flights)) flightsArr = flightsResponse.flights;
+        else if (flightsResponse && typeof flightsResponse === 'object') flightsArr = [flightsResponse];
 
-      const flight = flightsArr.find(f => (f.name || f.flight_number) === flightName);
-      if (flight) {
-        const telemetryData = await telemetryAPI.getTelemetry(flight.id);
-        const list = Array.isArray(telemetryData?.results) ? telemetryData.results : (Array.isArray(telemetryData) ? telemetryData : []);
-        if (list.length > 0) {
-          const data = {
-            timestamps: [], temperature: [], humidity: [], altitude: [], pressure: [], walkieChannel: [], accelerometer: [], gyroscope: [], coordinates: []
-          };
-          list.forEach(t => {
-            data.timestamps.push(new Date(t.timestamp).getTime());
-            data.temperature.push(t.temperature || 0);
-            data.humidity.push(t.humidity || 0);
-            data.altitude.push(t.altitude || 0);
-            data.pressure.push(t.pressure || 0);
-            data.walkieChannel.push(t.walkie_channel || 0);
-            data.accelerometer.push({ x: t.accelerometer_x || 0, y: t.accelerometer_y || 0, z: t.accelerometer_z || 0 });
-            data.gyroscope.push({ x: t.gyroscope_x || 0, y: t.gyroscope_y || 0, z: t.gyroscope_z || 0 });
-            data.coordinates.push({ lat: t.latitude || 0, lng: t.longitude || 0 });
-          });
-          console.log(`Flight ${flightName} loaded from backend telemetry`);
-          return data;
+        const found = flightsArr.find(f => (f.name || f.flight_number) === flightName || f.id === flightId);
+        if (found) targetId = found.id;
+      }
+
+      if (targetId) {
+        try {
+          // Use globalApiRequest (auth-capable) if configured, otherwise call the Node API
+          let telemetryResp;
+          const url = `/api/flights/${targetId}/telemetry?limit=10000`;
+          if (typeof globalApiRequest === 'function') {
+            telemetryResp = await globalApiRequest(`/flights/${targetId}/telemetry?limit=10000`);
+          } else {
+            // Use a relative path so frontend calls the configured backend (dev script runs backend at :5000)
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(`Backend telemetry fetch failed: ${resp.status}`);
+            telemetryResp = await resp.json();
+          }
+
+          const list = Array.isArray(telemetryResp?.results) ? telemetryResp.results : (Array.isArray(telemetryResp) ? telemetryResp : []);
+          if (list.length > 0) {
+            const data = { timestamps: [], temperature: [], humidity: [], altitude: [], pressure: [], walkieChannel: [], accelerometer: [], gyroscope: [], coordinates: [] };
+            list.forEach(t => {
+              data.timestamps.push(new Date(t.timestamp).getTime());
+              data.temperature.push(t.temperature || 0);
+              data.humidity.push(t.humidity || 0);
+              data.altitude.push(t.altitude || 0);
+              data.pressure.push(t.pressure || 0);
+              data.walkieChannel.push(t.walkie_channel || 0);
+              data.accelerometer.push({ x: t.accelerometer_x || 0, y: t.accelerometer_y || 0, z: t.accelerometer_z || 0 });
+              data.gyroscope.push({ x: t.gyroscope_x || 0, y: t.gyroscope_y || 0, z: t.gyroscope_z || 0 });
+              data.coordinates.push({ lat: t.latitude || 0, lng: t.longitude || 0 });
+            });
+            console.log(`Flight ${flightName || targetId} loaded from backend telemetry`);
+            return data;
+          }
+        } catch (e) {
+          console.error('Error fetching telemetry from backend by id:', e);
         }
       }
     }
@@ -196,47 +203,59 @@ export async function loadFlightData(flightName) {
   return null;
 }
 
-// Get saved flights (Node API first, IndexedDB fallback)
+  // Get saved flights (Node API / SQLite first, IndexedDB fallback)
 export async function getSavedFlights() {
   let backendFlights = [];
   let indexedDBFlights = [];
 
   try {
-    // Use the globalApiRequest function only if it has been configured (i.e., user is logged in)
-    if (isAuthenticated() && typeof globalApiRequest === 'function') {
-      const flightsResponse = await globalApiRequest('/api/flights');
-      console.log('Raw flights response from backend:', flightsResponse);
-
-      // Handle different response formats
-      let flights = flightsResponse;
-      if (flightsResponse && typeof flightsResponse === 'object') {
-        // If it's a paginated response, extract the results
-        if (flightsResponse.results && Array.isArray(flightsResponse.results)) {
-          flights = flightsResponse.results;
-        }
-        // If it's an object but has a data property
-        else if (flightsResponse.data && Array.isArray(flightsResponse.data)) {
-          flights = flightsResponse.data;
-        }
-        // If the response itself is an array
-        else if (Array.isArray(flightsResponse)) {
-          flights = flightsResponse;
-        }
-        // If it's a single object, wrap in array
-        else if (!Array.isArray(flightsResponse)) {
-          flights = [flightsResponse];
-        }
-      }
-
-      if (Array.isArray(flights)) {
-        backendFlights = flights.map(f => f.flight_number || f.name || `Flight ${f.id}`);
-        console.log('Flights loaded from Node.js backend:', backendFlights);
-      } else {
-        console.warn('Flights response is not an array:', flights);
-        backendFlights = [];
-      }
+    // Try backend fetch for flights. Prefer globalApiRequest (handles auth) if configured,
+    // otherwise perform a direct fetch to the Node API (useful in dev without auth).
+    let flightsResponse;
+    if (typeof globalApiRequest === 'function') {
+      flightsResponse = await globalApiRequest('/api/flights');
     } else {
-      console.log('User not authenticated or API request function not configured, skipping backend fetch for flights.');
+      try {
+        // Use relative path so frontend requests the Node API (which serves data from SQLite)
+        const resp = await fetch('/api/flights');
+        if (resp.ok) flightsResponse = await resp.json();
+        else flightsResponse = null;
+      } catch (fetchErr) {
+        console.warn('Direct fetch to backend /api/flights failed:', fetchErr.message || fetchErr);
+        flightsResponse = null;
+      }
+    }
+
+    if (flightsResponse) console.log('Raw flights response from backend:', flightsResponse);
+
+    // Handle different response formats
+    let flights = flightsResponse;
+    if (flightsResponse && typeof flightsResponse === 'object') {
+      // If it's a paginated response, extract the results
+      if (flightsResponse.results && Array.isArray(flightsResponse.results)) {
+        flights = flightsResponse.results;
+      }
+      // If it's an object but has a data property
+      else if (flightsResponse.data && Array.isArray(flightsResponse.data)) {
+        flights = flightsResponse.data;
+      }
+      // If the response itself is an array
+      else if (Array.isArray(flightsResponse)) {
+        flights = flightsResponse;
+      }
+      // If it's a single object, wrap in array
+      else if (!Array.isArray(flightsResponse) && flightsResponse) {
+        flights = [flightsResponse];
+      }
+    }
+
+    if (Array.isArray(flights)) {
+      // return objects { id, name }
+      backendFlights = flights.map(f => ({ id: f.id, name: f.flight_number || f.name || `Flight ${f.id}` }));
+      console.log('Flights loaded from Node.js backend (objects):', backendFlights);
+    } else {
+      if (flightsResponse) console.warn('Flights response is not an array:', flights);
+      backendFlights = [];
     }
   } catch (error) {
     console.error('Error loading flights from Node.js backend:', error);
@@ -249,17 +268,22 @@ export async function getSavedFlights() {
       const transaction = db.transaction(STORE_NAME, 'readonly');
       const store = transaction.objectStore(STORE_NAME);
       const request = store.getAllKeys();
-      request.onsuccess = () => resolve(request.result.map(String));
+      request.onsuccess = () => resolve(request.result.map(k => ({ id: null, name: String(k) }))); // local flights have no backend id
       request.onerror = () => reject("Error fetching saved flights from IndexedDB");
     });
-    console.log('Flights loaded from IndexedDB:', indexedDBFlights);
+    console.log('Flights loaded from IndexedDB (objects):', indexedDBFlights);
   } catch (error) {
     console.error('Error loading flights from IndexedDB:', error);
   }
 
   // Combine and deduplicate
-  const allFlights = [...new Set([...backendFlights, ...indexedDBFlights])];
-  return allFlights;
+  // Combine preserving objects; dedupe by name
+  const combined = [...backendFlights, ...indexedDBFlights];
+  const seen = new Map();
+  combined.forEach(f => {
+    if (!seen.has(f.name)) seen.set(f.name, f);
+  });
+  return Array.from(seen.values());
 }
 
 // Delete flight (Django + IndexedDB)
@@ -397,6 +421,35 @@ export async function exportFlightPackage(flightName, flightData) {
   }
 
   // --- Generar y descargar ZIP ---
+    // Try to fetch DB CSVs from backend and merge into the zip (request flight-scoped export)
+  try {
+    // Backend export endpoint (Node API) - pass flightName if available
+    const params = flightName ? `?flightName=${encodeURIComponent(flightName)}` : '';
+    const backendExportUrl = `http://127.0.0.1:5000/api/export/all-csv${params}`;
+    const resp = await fetch(backendExportUrl);
+    if (resp.ok) {
+      const serverBlob = await resp.blob();
+      try {
+        const serverZip = await JSZip.loadAsync(serverBlob);
+        // Copy each file from server zip into our client zip (avoid name collisions)
+        await Promise.all(Object.keys(serverZip.files).map(async (name) => {
+          const fileData = await serverZip.files[name].async('arraybuffer');
+          // If the zip already has a file with same name, prefix with 'db/'
+          const targetName = zip.files[name] ? `db/${name}` : name;
+          zip.file(targetName, fileData);
+        }));
+      } catch (e) {
+        console.warn('Could not merge server ZIP contents into client ZIP:', e);
+        // As a fallback, include the raw server blob
+        zip.file('db_export.zip', serverBlob);
+      }
+    } else {
+      console.warn('Backend export endpoint returned non-OK status:', resp.status);
+    }
+  } catch (fetchErr) {
+    console.warn('Could not fetch backend export ZIP:', fetchErr);
+  }
+
   const content = await zip.generateAsync({ type: "blob" });
   saveAs(content, `${flightName}_package.zip`);
 }
@@ -420,7 +473,7 @@ export async function startLiveFlight(flightName, aircraft_id = 'CANSAT-001', de
           method: 'POST',
           body: JSON.stringify({
             flight_name: flightName,
-            port: 'COM11',
+            port: 'COM5',
             baud_rate: 115200
           }),
         });

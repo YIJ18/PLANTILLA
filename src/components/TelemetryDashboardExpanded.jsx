@@ -23,57 +23,32 @@ const TelemetryDashboardExpanded = () => {
   const [error, setError] = useState(null);
   const { apiRequest, isAuthenticated } = useAuth();
 
-  // Fetch available flights
+  // Fetch available flights (prefer JSON /api/flights endpoint)
   useEffect(() => {
     const fetchFlights = async () => {
       if (!isAuthenticated()) return;
-      
       try {
-        const flightsResponse = await apiRequest('/flights/csv');
+        // Prefer the JSON endpoint that returns an array of flights
+        const resp = await fetch('http://127.0.0.1:5000/api/flights');
+        if (!resp.ok) throw new Error(`Failed fetching flights: ${resp.status}`);
+        const flightsResponse = await resp.json();
         console.log('Raw flights response in TelemetryDashboard:', flightsResponse);
-        
-        // Handle different response formats
+
         let flightsList = [];
-        if (flightsResponse && typeof flightsResponse === 'object') {
-          // Handle CSV API response format
-          if (flightsResponse.files && Array.isArray(flightsResponse.files)) {
-            flightsList = flightsResponse.files.map((file, index) => ({
-              id: index + 1,
-              name: file.name.replace('flight_', '').replace('.csv', ''),
-              flight_number: file.name,
-              status: 'completed',
-              created_at: new Date(file.modified * 1000).toISOString(),
-              aircraft_id: 'CANSAT-SERIAL',
-              path: file.path
-            }));
-          }
-          // If it's a paginated response, extract the results
-          else if (flightsResponse.results && Array.isArray(flightsResponse.results)) {
-            flightsList = flightsResponse.results;
-          }
-          // If it's an object but has a data property
-          else if (flightsResponse.data && Array.isArray(flightsResponse.data)) {
-            flightsList = flightsResponse.data;
-          }
-          // If the response itself is an array
-          else if (Array.isArray(flightsResponse)) {
-            flightsList = flightsResponse;
-          }
-          // If it's a single object, wrap in array
-          else if (!Array.isArray(flightsResponse)) {
-            flightsList = [flightsResponse];
-          }
+        if (Array.isArray(flightsResponse)) {
+          flightsList = flightsResponse;
+        } else if (flightsResponse && Array.isArray(flightsResponse.results)) {
+          flightsList = flightsResponse.results;
+        } else if (flightsResponse && Array.isArray(flightsResponse.data)) {
+          flightsList = flightsResponse.data;
+        } else if (flightsResponse && typeof flightsResponse === 'object' && Object.keys(flightsResponse).length > 0) {
+          // If it's a single flight object, wrap it
+          flightsList = [flightsResponse];
         }
-        
-        // Ensure we have an array
-        if (!Array.isArray(flightsList)) {
-          console.warn('Flights response is not an array, using empty array');
-          flightsList = [];
-        }
-        
+
+        if (!Array.isArray(flightsList)) flightsList = [];
         setFlights(flightsList);
-        
-        // Auto-select the latest flight
+
         if (flightsList.length > 0) {
           const latestFlight = flightsList[flightsList.length - 1];
           setSelectedFlight(latestFlight);
@@ -85,7 +60,7 @@ const TelemetryDashboardExpanded = () => {
     };
 
     fetchFlights();
-  }, [isAuthenticated, apiRequest]);
+  }, [isAuthenticated]);
 
   // Fetch telemetry data for selected flight
   useEffect(() => {
@@ -97,7 +72,7 @@ const TelemetryDashboardExpanded = () => {
       
       try {
         // Note: Simple API doesn't have telemetry endpoints
-        // Data comes directly from CSV files during COM11 reading
+  // Data comes directly from CSV files during COM5 reading
         console.log('📡 Using simple API - telemetry data comes from CSV files');
         
         // Set empty telemetry data for now
@@ -271,11 +246,15 @@ const TelemetryDashboardExpanded = () => {
             className="bg-gray-800 border border-gray-600 rounded px-3 py-1 text-white text-sm"
           >
             <option value="">Seleccionar vuelo...</option>
-            {Array.isArray(flights) && flights.map(flight => (
-              <option key={flight.id} value={flight.id}>
-                {flight.flight_number} - {flight.status}
-              </option>
-            ))}
+            {Array.isArray(flights) && flights.map((flight, idx) => {
+              const key = flight.id ?? flight.flight_number ?? idx;
+              const val = flight.id ?? key;
+              return (
+                <option key={key} value={val}>
+                  {flight.flight_number ?? flight.name ?? `Flight ${val}`} - {flight.status ?? 'unknown'}
+                </option>
+              );
+            })}
           </select>
           
           {selectedFlight && (

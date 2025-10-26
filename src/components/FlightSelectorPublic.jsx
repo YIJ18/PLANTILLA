@@ -22,13 +22,13 @@ const FlightSelectorPublic = ({ onFlightSelect, currentFlight, savedFlights }) =
           {savedFlights.length > 0 ? (
             savedFlights.map((flight) => (
               <Button
-                key={flight}
+                key={flight.id || flight.name}
                 variant="outline"
                 className="w-full justify-start bg-gray-800/50 border-gray-600 hover:bg-blue-600/20 hover:border-blue-500"
                 onClick={() => onFlightSelect(flight)}
               >
                 <Eye className="w-4 h-4 mr-2" />
-                {flight}
+                {flight.name}
               </Button>
             ))
           ) : (

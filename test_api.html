@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Prueba API COM11</title>
+    <title>Prueba API COM5</title>
     <style>
         body { font-family: Arial; margin: 20px; }
         button { padding: 10px 20px; margin: 10px; font-size: 16px; }
@@ -12,10 +12,10 @@
     </style>
 </head>
 <body>
-    <h1>🛰️ Prueba API COM11 ASTRA</h1>
+    <h1>🛰️ Prueba API COM5 ASTRA</h1>
     
-    <button class="start" onclick="startSerial()">🚀 Iniciar Lectura COM11</button>
-    <button class="stop" onclick="stopSerial()">⏹️ Detener Lectura COM11</button>
+    <button class="start" onclick="startSerial()">🚀 Iniciar Lectura COM5</button>
+    <button class="stop" onclick="stopSerial()">⏹️ Detener Lectura COM5</button>
     <button class="status" onclick="checkStatus()">📊 Ver Estado</button>
     <button onclick="listFiles()">📁 Listar CSV</button>
     
@@ -29,7 +29,7 @@
         }
 
         async function startSerial() {
-            log('🚀 Iniciando lectura COM11...');
+            log('🚀 Iniciando lectura COM5...');
             try {
                 const response = await fetch('http://127.0.0.1:5000/api/serial/start', {
                     method: 'POST',
@@ -53,7 +53,7 @@
         }
 
         async function stopSerial() {
-            log('⏹️ Deteniendo lectura COM11...');
+            log('⏹️ Deteniendo lectura COM5...');
             try {
                 const response = await fetch('http://127.0.0.1:5000/api/serial/stop', {
                     method: 'POST'

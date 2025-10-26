@@ -24,7 +24,7 @@ const COM11FlightController = ({ onFlightStart, onFlightStop, onDataUpdate, flig
   // Ya no manejamos el proceso serial en el frontend
   // const [serialProcess, setSerialProcess] = useState(null);
   const [availablePorts, setAvailablePorts] = useState([]);
-  const [selectedPort, setSelectedPort] = useState('COM11');
+  const [selectedPort, setSelectedPort] = useState('COM5');
   const [loadingPorts, setLoadingPorts] = useState(false);
 
   // Cargar lista de puertos disponibles (ahora desde el backend de Node)
@@ -35,12 +35,12 @@ const COM11FlightController = ({ onFlightStart, onFlightStop, onDataUpdate, flig
       setLoadingPorts(true);
       // Asumimos que el backend de Python sigue corriendo para esta funcionalidad,
       // o que implementamos un endpoint similar en Node.
-      const resp = await fetch('http://127.0.0.1:5000/api/test/com11');
+  const resp = await fetch('http://127.0.0.1:5000/api/test/serial');
       if (!resp.ok) throw new Error('No se pudo obtener la lista de puertos');
       const data = await resp.json();
       const list = Array.isArray(data.available_ports) ? data.available_ports : [];
-      setAvailablePorts(list);
-      if (list.includes('COM11')) setSelectedPort('COM11');
+  setAvailablePorts(list);
+  if (list.includes('COM5')) setSelectedPort('COM5');
       else if (list.length > 0) setSelectedPort(list[0]);
     } catch (e) {
       console.error('Error cargando puertos:', e);
@@ -259,9 +259,9 @@ const COM11FlightController = ({ onFlightStart, onFlightStop, onDataUpdate, flig
                 ))}
               </select>
             ) : (
-              <input
+                <input
                 className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm"
-                placeholder="Ej: COM11"
+                placeholder="Ej: COM5"
                 value={selectedPort}
                 onChange={(e) => setSelectedPort(e.target.value)}
                 disabled={serialStatus === 'connected' || serialStatus === 'connecting'}

@@ -54,16 +54,20 @@ const FlightSelector = ({ onFlightSelect, onFileUpload, onLiveMode, onStopLive, 
             Vuelos Guardados
           </h3>
           <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
-            {savedFlights.map((flight) => (
-              <Button
-                key={flight}
-                variant="outline"
-                className="w-full justify-start bg-gray-800/50 border-gray-600 hover:bg-blue-600/20 hover:border-blue-500"
-                onClick={() => onFlightSelect(flight)}
-              >
-                {flight}
-              </Button>
-            ))}
+            {savedFlights.map((flight) => {
+              const name = typeof flight === 'string' ? flight : (flight.name || flight.flight_number || `Flight ${flight.id}`);
+              const key = typeof flight === 'string' ? flight : (flight.id || name);
+              return (
+                <Button
+                  key={key}
+                  variant="outline"
+                  className="w-full justify-start bg-gray-800/50 border-gray-600 hover:bg-blue-600/20 hover:border-blue-500"
+                  onClick={() => onFlightSelect(flight)}
+                >
+                  {name}
+                </Button>
+              );
+            })}
           </div>
         </div>
 

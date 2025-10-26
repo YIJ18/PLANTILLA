@@ -14,6 +14,7 @@ export const PublicDisplayProvider = ({ children }) => {
   // Estado compartido entre admin y vista pública
   const [publicDisplayState, setPublicDisplayState] = useState({
     currentFlight: null,
+    currentFlightId: null,
     isLiveMode: false,
     liveFlight: null,
     sharedData: null,
@@ -23,10 +24,14 @@ export const PublicDisplayProvider = ({ children }) => {
   });
 
   // Funciones para controlar desde admin
-  const setPublicFlight = (flightName) => {
+  const setPublicFlight = (flight) => {
+    // flight can be either a string name or an object { id, name }
+    const name = typeof flight === 'string' ? flight : (flight?.name || null);
+    const id = typeof flight === 'object' && flight?.id ? flight.id : (typeof flight === 'string' ? null : null);
     setPublicDisplayState(prev => ({
       ...prev,
-      currentFlight: flightName,
+      currentFlight: name,
+      currentFlightId: id,
       displayMode: 'flights',
       isLiveMode: false,
       lastUpdate: new Date().toISOString(),
@@ -115,6 +120,34 @@ export const PublicDisplayProvider = ({ children }) => {
     }
   }, []);
 
+  // Listen for storage events so other tabs/windows update when admin changes projection
+  useEffect(() => {
+    const handleStorage = (e) => {
+      if (!e) return;
+      if (e.key !== 'publicDisplayState') return;
+      if (!e.newValue) return;
+      try {
+        const parsed = JSON.parse(e.newValue);
+        // Only update if different
+        setPublicDisplayState(prev => {
+          try {
+            const prevStr = JSON.stringify(prev);
+            const newStr = JSON.stringify(parsed);
+            if (prevStr === newStr) return prev;
+          } catch (err) {
+            // fallback to always update
+          }
+          return parsed;
+        });
+      } catch (err) {
+        console.warn('Invalid publicDisplayState in storage event:', err);
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
   useEffect(() => {
     localStorage.setItem('publicDisplayState', JSON.stringify(publicDisplayState));
   }, [publicDisplayState]);
@@ -124,7 +157,8 @@ export const PublicDisplayProvider = ({ children }) => {
     publicDisplayState,
     
     // Getters
-    getCurrentFlight: () => publicDisplayState.currentFlight,
+  getCurrentFlight: () => publicDisplayState.currentFlight,
+  getCurrentFlightId: () => publicDisplayState.currentFlightId,
     isLiveMode: () => publicDisplayState.isLiveMode,
     getLiveData: () => publicDisplayState.sharedData,
     getDisplayMode: () => publicDisplayState.displayMode,

@@ -70,13 +70,13 @@ const FlightSelectorAdmin = ({ onFlightSelect, onFileUpload, onLiveMode, onStopL
       const response = await fetch('http://localhost:5000/api/flights/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ flightName: fileName.trim(), port: 'COM11', baudRate: 115200 }),
+  body: JSON.stringify({ flightName: fileName.trim(), port: 'COM5', baudRate: 115200 }),
       });
 
       if (response.ok) {
         const result = await response.json();
         toast({
-          title: "Vuelo COM11 iniciado",
+          title: "Vuelo COM5 iniciado",
             description: `Grabando datos para el vuelo: ${result.flightName || fileName.trim()}`,
         });
   // Notificar al padre sobre el modo en vivo - incluir el flightId para unirse a la sala
@@ -217,9 +217,9 @@ const FlightSelectorAdmin = ({ onFlightSelect, onFileUpload, onLiveMode, onStopL
                   <Button
                     variant="ghost"
                     className="flex-1 justify-start text-left h-auto p-2"
-                    onClick={() => onFlightSelect(flight.name, flight.id)}
+                    onClick={() => onFlightSelect({ id: flight.id, name: flight.name })}
                   >
-                    <span className={`${currentFlight === flight.name ? 'text-blue-400 font-semibold' : 'text-white'}`}>
+                    <span className={`${(typeof currentFlight === 'string' ? currentFlight : (currentFlight?.name || '')) === flight.name ? 'text-blue-400 font-semibold' : 'text-white'}`}>
                       {flight.name}
                     </span>
                   </Button>
@@ -273,7 +273,7 @@ const FlightSelectorAdmin = ({ onFlightSelect, onFileUpload, onLiveMode, onStopL
         <div className="space-y-4">
           <h3 className="text-lg font-semibold text-green-400 flex items-center">
             <Play className="w-5 h-5 mr-2" />
-            Telemetría en Vivo (COM11)
+            Telemetría en Vivo (COM5)
           </h3>
           
           <div className="p-3 bg-blue-600/20 border border-blue-500/30 rounded-lg">
@@ -281,7 +281,7 @@ const FlightSelectorAdmin = ({ onFlightSelect, onFileUpload, onLiveMode, onStopL
               <Satellite className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
               <div className="text-xs text-gray-300">
                 <p className="font-medium text-blue-300 mb-1">Configuración de Vuelo:</p>
-                <p>• Puerto: COM11 | Baudios: 115200</p>
+                <p>• Puerto: COM5 | Baudios: 115200</p>
                 <p>• Los datos se guardan en la base de datos central.</p>
               </div>
             </div>

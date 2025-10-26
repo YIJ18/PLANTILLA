@@ -1,0 +1,2 @@
+id,username,email,password_hash,name,role,created_at,updated_at
+1,testuser,test@example.com,$2b$10$h6ctnp9T6cIr3B7DnH3ssuqxPRnP6cWegIN5IzaCsnIkrl7Iy9fEm,Test User,admin,2025-10-21 07:27:40,2025-10-21 07:27:40

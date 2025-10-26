@@ -203,6 +203,21 @@ export default defineConfig({
 			'Cross-Origin-Embedder-Policy': 'credentialless',
 		},
 		allowedHosts: true,
+		// Proxy API and socket.io requests to the backend during development so
+		// frontend can call /api/* and use websocket upgrades without CORS issues.
+		proxy: {
+			'/api': {
+				target: 'http://localhost:5000',
+				changeOrigin: true,
+				secure: false,
+			},
+			'/socket.io': {
+				target: 'http://localhost:5000',
+				ws: true,
+				changeOrigin: true,
+				secure: false,
+			},
+		},
 	},
 	resolve: {
 		extensions: ['.jsx', '.js', '.tsx', '.ts', '.json', ],
